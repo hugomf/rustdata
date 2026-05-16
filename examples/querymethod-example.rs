@@ -1,21 +1,25 @@
-//! # Typed query methods
+//! # Typed query methods — full feature showcase
 //!
-//! `#[derive(QueryMethods)]` generates trait-based `async fn` methods on
-//! `CrudRepository<BA, E>` and `QueryRepository<BA, E>`, so you can call:
+//! `#[derive(QueryMethods)]` generates trait-based async methods on
+//! `CrudRepository<BA, E>` and `QueryRepository<BA, E>`.
 //!
-//!   repo.find_by_age_gt(21)            instead of  repo.find_by("find_by_age_gt", vec![…])
-//!   repo.find_by_status_ne("active")               (method name + arg types checked at compile time)
-//!
-//! The traits must be in scope — bring them in with `use` after the derive.
+//! New in this version:
+//!   find_by_status_in(vec!["active", "pending"])
+//!   find_by_email_is_null() / find_by_email_is_not_null()
+//!   count_by_status("active")
+//!   exists_by_age_gt(18)
+//!   delete_by_status("inactive")
+//!   find_by_status_and_age_gt("active", 21)   ← compound with operator
+//!   find_by_age_gt_paged(21, &pageable)        ← paginated
 
-use sqlx::sqlite::SqlitePool;
 use rustdata_core::{
-    CrudRepository, QueryRepository, backends::Sqlite, Entity, QueryMethods,
+    backends::Sqlite,
+    pagination::Pageable,
+    CrudRepository, Entity, QueryMethods, QueryRepository,
 };
+use sqlx::sqlite::SqlitePool;
 
 // ─── Entity ────────────────────────────────────────────────
-// `#[derive(Entity)]`       → EntityDescriptor + RowExtractable
-// `#[derive(QueryMethods)]` → UserCrudQueryMethods + UserQueryQueryMethods traits
 
 #[derive(Debug, Clone, Entity, QueryMethods)]
 #[entity(table = "users", order_by = "created_at DESC")]
@@ -26,8 +30,9 @@ struct User {
     #[entity(column = "username")]
     username: String,
 
+    // nullable — so _is_null / _is_not_null are useful here
     #[entity(column = "email")]
-    email: String,
+    email: Option<String>,
 
     #[entity(column = "age")]
     age: i32,
@@ -35,9 +40,14 @@ struct User {
     #[entity(column = "status")]
     status: String,
 
+    // auto_generated — excluded from QueryMethods so no find_by_created_at is generated
     #[entity(auto_generated)]
     created_at: chrono::DateTime<chrono::Utc>,
 }
+
+// Bring the generated traits into scope.
+use UserCrudQueryMethods as _;
+use UserQueryQueryMethods as _;
 
 // ─── Schema ────────────────────────────────────────────────
 
@@ -45,12 +55,12 @@ async fn setup_schema(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-            username TEXT NOT NULL UNIQUE,
-            email TEXT NOT NULL UNIQUE,
-            age INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            id          TEXT PRIMARY KEY,
+            username    TEXT NOT NULL UNIQUE,
+            email       TEXT,
+            age         INTEGER NOT NULL,
+            status      TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
         "#,
     )
@@ -60,29 +70,34 @@ async fn setup_schema(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error
 }
 
 async fn insert_test_data(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-    let now = chrono::Utc::now();
-
-    for (username, email, age, status) in [
-        ("john_admin",  "john@example.com",  35, "active"),
-        ("jane_user",   "jane@example.com",  28, "active"),
-        ("bob_ghost",   "bob@old.com",        22, "inactive"),
-        ("alice_dev",   "alice@dev.com",      30, "active"),
-        ("eve_reader",  "eve@books.com",      17, "inactive"),
-    ] {
+    let now = chrono::Utc::now().to_rfc3339();
+    let rows: &[(&str, Option<&str>, i32, &str)] = &[
+        ("john_admin",  Some("john@example.com"),  35, "active"),
+        ("jane_user",   Some("jane@example.com"),  28, "active"),
+        ("bob_ghost",   None,                       22, "inactive"),
+        ("alice_dev",   Some("alice@dev.com"),      30, "active"),
+        ("eve_reader",  Some("eve@books.com"),      17, "inactive"),
+        ("zara_pend",   Some("zara@new.com"),       25, "pending"),
+    ];
+    for (username, email, age, status) in rows {
         sqlx::query(
             "INSERT INTO users (id, username, email, age, status, created_at) \
              VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(username)
-        .bind(email)
+        .bind(*email)
         .bind(age)
         .bind(status)
-        .bind(now.to_rfc3339())
+        .bind(&now)
         .execute(pool)
         .await?;
     }
     Ok(())
+}
+
+fn names(users: &[User]) -> Vec<&str> {
+    users.iter().map(|u| u.username.as_str()).collect()
 }
 
 // ─── Main ──────────────────────────────────────────────────
@@ -93,82 +108,122 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_schema(&pool).await?;
     insert_test_data(&pool).await?;
 
-    // ════════════════════════════════════════════════════════
-    // CrudRepository — table is known at compile time via
-    // EntityDescriptor::TABLE, so no table name is needed.
-    // ════════════════════════════════════════════════════════
     let crud = CrudRepository::<Sqlite, User>::new(pool.clone());
 
-    println!("=== CrudRepository ===");
+    println!("══════════════════════════════════════════");
+    println!(" CrudRepository — typed QueryMethods demo");
+    println!("══════════════════════════════════════════\n");
 
-    // find_by_*  — matches WHERE col OP ?
+    // ── Basic comparisons ─────────────────────────────────────────────────────
+
     let adults = crud.find_by_age_gt(21).await?;
-    println!("age > 21 : {} users  {:?}",
-             adults.len(),
-             adults.iter().map(|u| &u.username).collect::<Vec<_>>());
-
-    let thirty_plus = crud.find_by_age_gte(30).await?;
-    println!("age >= 30: {} users  {:?}",
-             thirty_plus.len(),
-             thirty_plus.iter().map(|u| &u.username).collect::<Vec<_>>());
-
-    let minors = crud.find_by_age_lt(18).await?;
-    println!("age < 18 : {} users  {:?}",
-             minors.len(),
-             minors.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!("age > 21          → {:?}", names(&adults));
 
     let not_active = crud.find_by_status_ne("active").await?;
-    println!("status != 'active': {} users  {:?}",
-             not_active.len(),
-             not_active.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!("status != active  → {:?}", names(&not_active));
 
     let j_users = crud.find_by_username_like("j%").await?;
-    println!("username LIKE 'j%': {} users  {:?}",
-             j_users.len(),
-             j_users.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!("username LIKE j%  → {:?}", names(&j_users));
 
-    // find_one_by_*  — returns Option<User>
-    let maybe = crud.find_one_by_email("jane@example.com").await?;
-    println!("find_one_by_email: {:?}", maybe.as_ref().map(|u| &u.username));
+    // ── IN clause ─────────────────────────────────────────────────────────────
 
-    // _and_ / _or_ compound queries (equality on both sides)
-    let active_at_30 = crud
+    let multi_status = crud
+        .find_by_status_in(vec!["active", "pending"])
+        .await?;
+    println!("\nstatus IN (active, pending) → {:?}", names(&multi_status));
+
+    let specific_ages = crud
+        .find_by_age_in(vec![17i32, 28, 35])
+        .await?;
+    println!("age IN (17, 28, 35)         → {:?}", names(&specific_ages));
+
+    // ── IS NULL / IS NOT NULL ─────────────────────────────────────────────────
+
+    let no_email = crud.find_by_email_is_null().await?;
+    println!("\nemail IS NULL     → {:?}", names(&no_email));
+
+    let has_email = crud.find_by_email_is_not_null().await?;
+    println!("email IS NOT NULL → {:?}", names(&has_email));
+
+    let gap_exists = crud.exists_by_email_is_null().await?;
+    println!("any email IS NULL → {gap_exists}");
+
+    // ── count_by / exists_by ──────────────────────────────────────────────────
+
+    let active_count = crud.count_by_status("active").await?;
+    println!("\ncount active      → {active_count}");
+
+    let any_minors = crud.exists_by_age_lte(18).await?;
+    println!("exists age <= 18  → {any_minors}");
+
+    let adults_count = crud.count_by_age_gt(21).await?;
+    println!("count age > 21    → {adults_count}");
+
+    // ── delete_by ─────────────────────────────────────────────────────────────
+
+    let deleted = crud.delete_by_status("inactive").await?;
+    println!("\ndeleted inactive  → {deleted} rows");
+
+    let remaining = crud.find_by_age_gt(0).await?;
+    println!("remaining users   → {:?}", names(&remaining));
+
+    // ── Compound with operators ───────────────────────────────────────────────
+
+    let active_adults = crud
+        .find_by_status_and_age_gt("active", 21)
+        .await?;
+    println!("\nstatus=active AND age > 21 → {:?}", names(&active_adults));
+
+    let active_under_30 = crud
+        .find_by_status_and_age_lt("active", 30)
+        .await?;
+    println!("status=active AND age < 30 → {:?}", names(&active_under_30));
+
+    let active_exact_30 = crud
         .find_by_status_and_age("active", 30)
         .await?;
-    println!("status='active' AND age=30: {} users  {:?}",
-             active_at_30.len(),
-             active_at_30.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!("status=active AND age = 30 → {:?}", names(&active_exact_30));
 
-    let named_or_young = crud
-        .find_by_username_or_age("bob_ghost", 17)
+    // ── Paginated queries ─────────────────────────────────────────────────────
+
+    let page = crud
+        .find_by_age_gt_paged(21, &Pageable::new(0, 2))
         .await?;
-    println!("username='bob_ghost' OR age=17: {} users  {:?}",
-             named_or_young.len(),
-             named_or_young.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!(
+        "\nage > 21 (page 1 of {}, size 2) → {:?}",
+        page.total_pages,
+        names(&page.content)
+    );
 
-    // ════════════════════════════════════════════════════════
-    // QueryRepository — read-only, table name is a runtime arg.
-    // Useful when the same Row type is reused across multiple
-    // views/tables, or when EntityDescriptor is not available.
-    // ════════════════════════════════════════════════════════
-    let query = QueryRepository::<Sqlite, User>::new(pool);
-
-    println!("\n=== QueryRepository ===");
-
-    let adults_q = query.find_by_age_gt("users", 21).await?;
-    println!("age > 21 : {} users  {:?}",
-             adults_q.len(),
-             adults_q.iter().map(|u| &u.username).collect::<Vec<_>>());
-
-    let maybe_q = query.find_one_by_email("users", "jane@example.com").await?;
-    println!("find_one_by_email: {:?}", maybe_q.as_ref().map(|u| &u.username));
-
-    let active_at_30_q = query
-        .find_by_status_and_age("users", "active", 30)
+    let page2 = crud
+        .find_by_status_paged("active", &Pageable::new(1, 2))
         .await?;
-    println!("status='active' AND age=30: {} users  {:?}",
-             active_at_30_q.len(),
-             active_at_30_q.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!(
+        "status=active (page 2 of {}, size 2) → {:?}",
+        page2.total_pages,
+        names(&page2.content)
+    );
+
+    // ── QueryRepository (read-only, table name at runtime) ────────────────────
+
+    println!("\n══════════════════════════════════════════");
+    println!(" QueryRepository — same new methods");
+    println!("══════════════════════════════════════════\n");
+
+    let qrepo = QueryRepository::<Sqlite, User>::new(pool);
+
+    let multi_q = qrepo
+        .find_by_status_in("users", vec!["active", "pending"])
+        .await?;
+    println!("status IN (active, pending) → {:?}", names(&multi_q));
+
+    let no_email_q = qrepo.find_by_email_is_null("users").await?;
+    println!("email IS NULL               → {:?}", names(&no_email_q));
+
+    let compound_q = qrepo
+        .find_by_status_and_age_gte("users", "active", 28)
+        .await?;
+    println!("status=active AND age >= 28 → {:?}", names(&compound_q));
 
     Ok(())
 }

@@ -51,11 +51,9 @@ where
 
     fn find_by_id_sql() -> String {
         let d = BA::dialect();
-        let soft = D::SOFT_DELETE_COL.map(|c| format!("AND {} IS NULL", c));
-        let soft_clause = soft.unwrap_or_default();
         format!(
-            "SELECT {} FROM {} WHERE {} = {}{}",
-            D::select_cols(), D::TABLE, D::id_column().name, d.ph(1), soft_clause
+            "SELECT {} FROM {} WHERE {} = {}",
+            D::select_cols(), D::TABLE, D::id_column().name, d.ph(1)
         )
     }
 
@@ -215,37 +213,6 @@ where
         Ok(<AdOf<BA> as BindAdapter<DbOf<BA>>>::rows_affected(&result) > 0)
     }
 
-    /// Delete all rows matching a predicate.
-    ///
-    /// When soft-delete is configured, performs a soft delete (UPDATE) instead
-    /// of a hard DELETE.
-    pub async fn delete_by_pred(
-        &self,
-        predicate: &Predicate,
-    ) -> Result<u64, RepositoryError> {
-        let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
-        let sql = if let Some(col) = D::SOFT_DELETE_COL {
-            if where_clause.is_empty() {
-                format!(
-                    "UPDATE {} SET {} = {} WHERE {} IS NULL",
-                    D::TABLE, col, BA::dialect().current_timestamp(), col
-                )
-            } else {
-                format!(
-                    "UPDATE {} SET {} = {} WHERE {} IS NULL AND ({})",
-                    D::TABLE, col, BA::dialect().current_timestamp(), col, where_clause
-                )
-            }
-        } else if where_clause.is_empty() {
-            format!("DELETE FROM {}", D::TABLE)
-        } else {
-            format!("DELETE FROM {} WHERE {}", D::TABLE, where_clause)
-        };
-        let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let result = query.execute(&self.pool).await.map_err(RepositoryError::from)?;
-        Ok(<AdOf<BA> as BindAdapter<DbOf<BA>>>::rows_affected(&result))
-    }
-
     pub async fn exists_by_id(&self, id: &D::Id) -> Result<bool, RepositoryError> {
         Ok(self.find_by_id(id.clone()).await?.is_some())
     }
@@ -319,6 +286,36 @@ where
         rows.iter().map(|r| Self::hydrate(r)).collect()
     }
 
+    /// Like `find_all_pred`, but returns a paginated `Page<T>`.
+    ///
+    /// Prefer this over `find_all_pred` when the result set could be large.
+    pub async fn find_all_pred_paged(
+        &self,
+        predicate: &Predicate,
+        pageable: &Pageable,
+    ) -> Result<Page<D::Entity>, RepositoryError> {
+        let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
+
+        let count_sql = Self::count_sql(&where_clause);
+        let count_query = Self::bind_sql_values(sqlx::query(&count_sql), &params);
+        let count_row = count_query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
+        let ext = <ExOf<BA> as Default>::default();
+        let total = ext.get_i64(&count_row, "count")? as u64;
+
+        let sort_clause = Self::build_sort_clause(&pageable.sort, D::ORDER_BY);
+        let select_sql = Self::select_sql(&where_clause, &sort_clause);
+        let paginated_sql = self.dialect().render_pagination(
+            &select_sql,
+            "",
+            pageable.offset() as i64,
+            pageable.size as i64,
+        );
+        let query = Self::bind_sql_values(sqlx::query(&paginated_sql), &params);
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
+        let content: Result<Vec<_>, _> = rows.iter().map(|r| Self::hydrate(r)).collect();
+        Ok(Page::new(content?, total, pageable))
+    }
+
     pub async fn find_one_pred(
         &self,
         predicate: &Predicate,
@@ -332,6 +329,49 @@ where
             Some(r) => Ok(Some(Self::hydrate(&r)?)),
             None => Ok(None),
         }
+    }
+
+    pub async fn count_pred(
+        &self,
+        predicate: &Predicate,
+    ) -> Result<u64, RepositoryError> {
+        let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
+        let sql = Self::count_sql(&where_clause);
+        let query = Self::bind_sql_values(sqlx::query(&sql), &params);
+        let row = query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
+        let ext = <ExOf<BA> as Default>::default();
+        ext.get_i64(&row, "count").map(|n| n as u64)
+    }
+
+    /// Delete all rows matching a predicate. Respects soft-delete when configured.
+    pub async fn delete_pred(
+        &self,
+        predicate: &Predicate,
+    ) -> Result<u64, RepositoryError> {
+        let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
+        let sql = if let Some(col) = D::SOFT_DELETE_COL {
+            let soft_where = if where_clause.is_empty() {
+                format!("{} IS NULL", col)
+            } else {
+                format!("{} IS NULL AND ({})", col, where_clause)
+            };
+            format!(
+                "UPDATE {} SET {} = {} WHERE {}",
+                D::TABLE,
+                col,
+                BA::dialect().current_timestamp(),
+                soft_where
+            )
+        } else if where_clause.is_empty() {
+            format!("DELETE FROM {}", D::TABLE)
+        } else {
+            format!("DELETE FROM {} WHERE {}", D::TABLE, where_clause)
+        };
+        let result = Self::bind_sql_values(sqlx::query(&sql), &params)
+            .execute(&self.pool)
+            .await
+            .map_err(RepositoryError::from)?;
+        Ok(<AdOf<BA> as BindAdapter<DbOf<BA>>>::rows_affected(&result))
     }
 
     pub async fn find_one_spec(

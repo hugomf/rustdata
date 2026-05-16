@@ -70,5 +70,33 @@ pub use sql_type::{SqlBind, SqlExtract};
 // `rustdata-macros` is an implementation detail — never add it directly.
 pub use rustdata_macros::{Entity, Projection, QueryMethods, SqlType};
 
+/// Convenience prelude — import everything you need for typical usage.
+///
+/// ```ignore
+/// use rustdata_core::prelude::*;
+/// ```
+///
+/// This re-exports all public traits so generated `*CrudQueryMethods` and
+/// `*QueryQueryMethods` traits are in scope without knowing their names.
+/// Because Rust trait method resolution only works when the trait is in scope,
+/// this is the recommended import style.
+pub mod prelude {
+    pub use crate::{
+        backend::{Backend, DbBound},
+        bind::BindAdapter,
+        entity::EntityDescriptor,
+        error::{DbError, RepositoryError},
+        lifecycle::LifecycleHooks,
+        pagination::{Direction, Filter, FilterOperator, Order, Page, Pageable, Sort},
+        projection::Projection,
+        repo::CrudRepository,
+        row_extractable::{QueryRepository, RowExtractable},
+        soft_delete::SoftDeletable,
+        specification::{AndSpec, NotSpec, OrSpec, Predicate, Specification, SqlValue, ToSqlValue},
+        sql_type::{SqlBind, SqlExtract},
+        Entity, Projection, QueryMethods, SqlType,
+    };
+}
+
 #[cfg(test)]
 mod tests;

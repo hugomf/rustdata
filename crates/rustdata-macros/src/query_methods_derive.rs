@@ -6,9 +6,6 @@
 //! // CrudRepository — table name comes from EntityDescriptor::TABLE
 //! repo.find_by_age_gt(21).await?
 //! repo.find_by_status_and_age("active", 30).await?
-//! repo.count_by_status("active").await?
-//! repo.exists_by_age_gt(21).await?
-//! repo.delete_by_status("inactive").await?
 //!
 //! // QueryRepository — table name supplied at call site
 //! query.find_by_age_gt("users", 21).await?
@@ -35,11 +32,6 @@
 //! Both orderings are generated (e.g. `find_by_age_and_status` AND
 //! `find_by_status_and_age`) so the call site can use whichever reads
 //! naturally, regardless of struct field declaration order.
-//!
-//! ## Auto-import
-//!
-//! The macro emits `#[allow(unused_imports)] use … as _;` so that method
-//! resolution works without the caller writing any import explicitly.
 
 use darling::FromField;
 use proc_macro2::Span;
@@ -59,16 +51,6 @@ struct ColEntry {
     rust: String,
     col: String,
 }
-
-/// (suffix, Predicate variant name)
-const CMP_OPS: &[(&str, &str)] = &[
-    ("",     "Eq"),
-    ("_ne",  "Ne"),
-    ("_gt",  "Gt"),
-    ("_gte", "Gte"),
-    ("_lt",  "Lt"),
-    ("_lte", "Lte"),
-];
 
 pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
     let struct_name = &input.ident;
@@ -94,6 +76,7 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
         })
         .collect();
 
+    // Separate vecs: trait signatures vs impl bodies
     let mut crud_sigs    = Vec::<proc_macro2::TokenStream>::new();
     let mut crud_methods = Vec::<proc_macro2::TokenStream>::new();
     let mut qrepo_sigs    = Vec::<proc_macro2::TokenStream>::new();
@@ -103,7 +86,16 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
     for entry in &col_map {
         let col_name = &entry.col;
 
-        for (suffix, variant_str) in CMP_OPS {
+        let cmp_ops: &[(&str, &str)] = &[
+            ("",     "Eq"),
+            ("_ne",  "Ne"),
+            ("_gt",  "Gt"),
+            ("_gte", "Gte"),
+            ("_lt",  "Lt"),
+            ("_lte", "Lte"),
+        ];
+
+        for (suffix, variant_str) in cmp_ops {
             let variant  = Ident::new(variant_str, Span::call_site());
             let find_all = Ident::new(&format!("find_by_{}{}", entry.rust, suffix), Span::call_site());
             let find_one = Ident::new(&format!("find_one_by_{}{}", entry.rust, suffix), Span::call_site());
@@ -251,181 +243,203 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
             });
         }
 
+        // ── Paged single-field queries ──
+        {
+            for (suffix, variant_str) in &[("", "Eq"), ("_gt", "Gt"), ("_lt", "Lt"), ("_gte", "Gte"), ("_lte", "Lte")] {
+                let variant   = Ident::new(variant_str, Span::call_site());
+                let find_paged = Ident::new(&format!("find_by_{}{}_paged", entry.rust, suffix), Span::call_site());
+
+                crud_sigs.push(quote! {
+                    async fn #find_paged<V>(&self, value: V, pageable: &::rustdata_core::pagination::Pageable)
+                        -> ::std::result::Result<::rustdata_core::pagination::Page<#struct_name>, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send;
+                });
+
+                crud_methods.push(quote! {
+                    async fn #find_paged<V>(&self, value: V, pageable: &::rustdata_core::pagination::Pageable)
+                        -> ::std::result::Result<::rustdata_core::pagination::Page<#struct_name>, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send,
+                    {
+                        let predicate = ::rustdata_core::specification::Predicate::#variant {
+                            column: #col_name.to_string(),
+                            value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
+                        };
+                        self.find_all_pred_paged(&predicate, pageable).await
+                    }
+                });
+            }
+        }
+
         // ── IN ──
         {
-            let find_all_in = Ident::new(&format!("find_by_{}_in", entry.rust), Span::call_site());
-            // find_one_by_X_in is omitted — IN with a single result is misleading.
+            let find_in = Ident::new(&format!("find_by_{}_in", entry.rust), Span::call_site());
 
             crud_sigs.push(quote! {
-                async fn #find_all_in<V>(&self, values: ::std::vec::Vec<V>)
+                async fn #find_in<V>(&self, values: ::std::vec::Vec<V>)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 where V: ::rustdata_core::specification::ToSqlValue + Send;
             });
 
             crud_methods.push(quote! {
-                async fn #find_all_in<V>(&self, values: ::std::vec::Vec<V>)
+                async fn #find_in<V>(&self, values: ::std::vec::Vec<V>)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 where V: ::rustdata_core::specification::ToSqlValue + Send,
                 {
+                    let sql_values = values.into_iter().map(::rustdata_core::specification::ToSqlValue::to_sql_value).collect();
                     let predicate = ::rustdata_core::specification::Predicate::In {
                         column: #col_name.to_string(),
-                        values: values.into_iter().map(|v| ::rustdata_core::specification::ToSqlValue::to_sql_value(v)).collect(),
+                        values: sql_values,
                     };
                     self.find_all_pred(&predicate).await
                 }
             });
 
             qrepo_sigs.push(quote! {
-                async fn #find_all_in<V>(&self, table: &str, values: ::std::vec::Vec<V>)
+                async fn #find_in<V>(&self, table: &str, values: ::std::vec::Vec<V>)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 where V: ::rustdata_core::specification::ToSqlValue + Send;
             });
 
             qrepo_methods.push(quote! {
-                async fn #find_all_in<V>(&self, table: &str, values: ::std::vec::Vec<V>)
+                async fn #find_in<V>(&self, table: &str, values: ::std::vec::Vec<V>)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 where V: ::rustdata_core::specification::ToSqlValue + Send,
                 {
+                    let sql_values = values.into_iter().map(::rustdata_core::specification::ToSqlValue::to_sql_value).collect();
                     let predicate = ::rustdata_core::specification::Predicate::In {
                         column: #col_name.to_string(),
-                        values: values.into_iter().map(|v| ::rustdata_core::specification::ToSqlValue::to_sql_value(v)).collect(),
+                        values: sql_values,
                     };
                     self.find_all_pred(table, &predicate).await
                 }
             });
         }
 
-        // ── IsNull ──
+        // ── IS NULL / IS NOT NULL ──
         {
-            let fn_all = Ident::new(&format!("find_by_{}_is_null", entry.rust), Span::call_site());
-            let fn_one = Ident::new(&format!("find_one_by_{}_is_null", entry.rust), Span::call_site());
+            let find_null     = Ident::new(&format!("find_by_{}_is_null",     entry.rust), Span::call_site());
+            let find_not_null = Ident::new(&format!("find_by_{}_is_not_null", entry.rust), Span::call_site());
+            let exists_null   = Ident::new(&format!("exists_by_{}_is_null",   entry.rust), Span::call_site());
 
             crud_sigs.push(quote! {
-                async fn #fn_all(&self)
+                async fn #find_null(&self)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_one(&self)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>;
+                async fn #find_not_null(&self)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
+                async fn #exists_null(&self)
+                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>;
             });
 
             crud_methods.push(quote! {
-                async fn #fn_all(&self)
+                async fn #find_null(&self)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
+                    let predicate = ::rustdata_core::specification::Predicate::IsNull { column: #col_name.to_string() };
                     self.find_all_pred(&predicate).await
                 }
 
-                async fn #fn_one(&self)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>
+                async fn #find_not_null(&self)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_one_pred(&predicate).await
+                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull { column: #col_name.to_string() };
+                    self.find_all_pred(&predicate).await
+                }
+
+                async fn #exists_null(&self)
+                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
+                {
+                    let predicate = ::rustdata_core::specification::Predicate::IsNull { column: #col_name.to_string() };
+                    self.find_all_pred(&predicate).await.map(|v| !v.is_empty())
                 }
             });
 
             qrepo_sigs.push(quote! {
-                async fn #fn_all(&self, table: &str)
+                async fn #find_null(&self, table: &str)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_one(&self, table: &str)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>;
+                async fn #find_not_null(&self, table: &str)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
             });
 
             qrepo_methods.push(quote! {
-                async fn #fn_all(&self, table: &str)
+                async fn #find_null(&self, table: &str)
                     -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
+                    let predicate = ::rustdata_core::specification::Predicate::IsNull { column: #col_name.to_string() };
                     self.find_all_pred(table, &predicate).await
                 }
 
-                async fn #fn_one(&self, table: &str)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>
+                async fn #find_not_null(&self, table: &str)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                 {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_one_pred(table, &predicate).await
+                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull { column: #col_name.to_string() };
+                    self.find_all_pred(table, &predicate).await
                 }
             });
         }
 
-        // ── IsNotNull ──
+        // ── count_by_* / exists_by_* / delete_by_* ──
         {
-            let fn_all = Ident::new(&format!("find_by_{}_is_not_null", entry.rust), Span::call_site());
-            let fn_one = Ident::new(&format!("find_one_by_{}_is_not_null", entry.rust), Span::call_site());
+            for (suffix, variant_str) in &[("", "Eq"), ("_gt", "Gt"), ("_lt", "Lt"), ("_gte", "Gte"), ("_lte", "Lte")] {
+                let variant   = Ident::new(variant_str, Span::call_site());
+                let count_fn  = Ident::new(&format!("count_by_{}{}", entry.rust, suffix), Span::call_site());
+                let exists_fn = Ident::new(&format!("exists_by_{}{}", entry.rust, suffix), Span::call_site());
+                let delete_fn = Ident::new(&format!("delete_by_{}{}", entry.rust, suffix), Span::call_site());
 
-            crud_sigs.push(quote! {
-                async fn #fn_all(&self)
-                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
+                crud_sigs.push(quote! {
+                    async fn #count_fn<V>(&self, value: V)
+                        -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send;
 
-                async fn #fn_one(&self)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>;
-            });
+                    async fn #exists_fn<V>(&self, value: V)
+                        -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send;
 
-            crud_methods.push(quote! {
-                async fn #fn_all(&self)
-                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_all_pred(&predicate).await
-                }
+                    async fn #delete_fn<V>(&self, value: V)
+                        -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send;
+                });
 
-                async fn #fn_one(&self)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_one_pred(&predicate).await
-                }
-            });
+                crud_methods.push(quote! {
+                    async fn #count_fn<V>(&self, value: V)
+                        -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send,
+                    {
+                        let predicate = ::rustdata_core::specification::Predicate::#variant {
+                            column: #col_name.to_string(),
+                            value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
+                        };
+                        self.count_pred(&predicate).await
+                    }
 
-            qrepo_sigs.push(quote! {
-                async fn #fn_all(&self, table: &str)
-                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>;
+                    async fn #exists_fn<V>(&self, value: V)
+                        -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send,
+                    {
+                        let predicate = ::rustdata_core::specification::Predicate::#variant {
+                            column: #col_name.to_string(),
+                            value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
+                        };
+                        self.count_pred(&predicate).await.map(|c| c > 0)
+                    }
 
-                async fn #fn_one(&self, table: &str)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>;
-            });
-
-            qrepo_methods.push(quote! {
-                async fn #fn_all(&self, table: &str)
-                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_all_pred(table, &predicate).await
-                }
-
-                async fn #fn_one(&self, table: &str)
-                    -> ::std::result::Result<::std::option::Option<#struct_name>, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.find_one_pred(table, &predicate).await
-                }
-            });
+                    async fn #delete_fn<V>(&self, value: V)
+                        -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
+                    where V: ::rustdata_core::specification::ToSqlValue + Send,
+                    {
+                        let predicate = ::rustdata_core::specification::Predicate::#variant {
+                            column: #col_name.to_string(),
+                            value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
+                        };
+                        self.delete_pred(&predicate).await
+                    }
+                });
+            }
         }
     }
 
-    // ── Compound AND / OR — both orderings ───────────────────────────────
-    // Generate i×j (i≠j) so find_by_status_and_age AND find_by_age_and_status
-    // are both available regardless of struct field declaration order.
-    // For each ordered pair, generates variants with operators on the last field:
-    //   find_by_{a}_and_{b}{op}, find_by_{a}_or_{b}{op}
-    // where op ∈ CMP_OPS (Eq, Ne, Gt, Gte, Lt, Lte).
+    // ── Compound AND with operator on second field ────────────────────────────
+    // Generates find_by_status_and_age_gt, find_by_status_and_age_lt, etc.
+    // First field always uses Eq; second field uses any comparison operator.
     for i in 0..col_map.len() {
         for j in 0..col_map.len() {
             if i == j { continue; }
@@ -434,354 +448,143 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
             let ca = &ea.col;
             let cb = &eb.col;
 
-            for (suffix, variant_str) in CMP_OPS {
-                let variant = Ident::new(variant_str, Span::call_site());
-                let fn_and = Ident::new(&format!("find_by_{}_and_{}{}", ea.rust, eb.rust, suffix), Span::call_site());
-                let fn_or  = Ident::new(&format!("find_by_{}_or_{}{}",  ea.rust, eb.rust, suffix), Span::call_site());
+            let fn_and = Ident::new(&format!("find_by_{}_and_{}", ea.rust, eb.rust), Span::call_site());
+            let fn_or  = Ident::new(&format!("find_by_{}_or_{}",  ea.rust, eb.rust), Span::call_site());
+
+            crud_sigs.push(quote! {
+                async fn #fn_and<VA, VB>(&self, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send;
+
+                async fn #fn_or<VA, VB>(&self, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send;
+            });
+
+            crud_methods.push(quote! {
+                async fn #fn_and<VA, VB>(&self, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send,
+                {
+                    let predicate = ::rustdata_core::specification::Predicate::And(vec![
+                        ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
+                        ::rustdata_core::specification::Predicate::Eq { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                    ]);
+                    self.find_all_pred(&predicate).await
+                }
+
+                async fn #fn_or<VA, VB>(&self, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send,
+                {
+                    let predicate = ::rustdata_core::specification::Predicate::Or(vec![
+                        ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
+                        ::rustdata_core::specification::Predicate::Eq { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                    ]);
+                    self.find_all_pred(&predicate).await
+                }
+            });
+
+            qrepo_sigs.push(quote! {
+                async fn #fn_and<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send;
+
+                async fn #fn_or<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send;
+            });
+
+            qrepo_methods.push(quote! {
+                async fn #fn_and<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send,
+                {
+                    let predicate = ::rustdata_core::specification::Predicate::And(vec![
+                        ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
+                        ::rustdata_core::specification::Predicate::Eq { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                    ]);
+                    self.find_all_pred(table, &predicate).await
+                }
+
+                async fn #fn_or<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
+                where VA: ::rustdata_core::specification::ToSqlValue + Send,
+                      VB: ::rustdata_core::specification::ToSqlValue + Send,
+                {
+                    let predicate = ::rustdata_core::specification::Predicate::Or(vec![
+                        ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
+                        ::rustdata_core::specification::Predicate::Eq { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                    ]);
+                    self.find_all_pred(table, &predicate).await
+                }
+            });
+
+            // Compound with comparison operators on the second field:
+            // find_by_{a}_and_{b}_gt, find_by_{a}_and_{b}_lt, etc.
+            let richer_ops: &[(&str, &str)] = &[
+                ("_gt",  "Gt"),
+                ("_gte", "Gte"),
+                ("_lt",  "Lt"),
+                ("_lte", "Lte"),
+                ("_ne",  "Ne"),
+            ];
+            for (op_suffix, op_variant_str) in richer_ops {
+                let op_variant = Ident::new(op_variant_str, Span::call_site());
+                let fn_richer = Ident::new(
+                    &format!("find_by_{}_and_{}{}", ea.rust, eb.rust, op_suffix),
+                    Span::call_site(),
+                );
 
                 crud_sigs.push(quote! {
-                    async fn #fn_and<VA, VB>(&self, va: VA, vb: VB)
-                        -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                    where VA: ::rustdata_core::specification::ToSqlValue + Send,
-                          VB: ::rustdata_core::specification::ToSqlValue + Send;
-
-                    async fn #fn_or<VA, VB>(&self, va: VA, vb: VB)
+                    async fn #fn_richer<VA, VB>(&self, va: VA, vb: VB)
                         -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                     where VA: ::rustdata_core::specification::ToSqlValue + Send,
                           VB: ::rustdata_core::specification::ToSqlValue + Send;
                 });
 
                 crud_methods.push(quote! {
-                    async fn #fn_and<VA, VB>(&self, va: VA, vb: VB)
+                    async fn #fn_richer<VA, VB>(&self, va: VA, vb: VB)
                         -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                     where VA: ::rustdata_core::specification::ToSqlValue + Send,
                           VB: ::rustdata_core::specification::ToSqlValue + Send,
                     {
                         let predicate = ::rustdata_core::specification::Predicate::And(vec![
                             ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
-                            ::rustdata_core::specification::Predicate::#variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
-                        ]);
-                        self.find_all_pred(&predicate).await
-                    }
-
-                    async fn #fn_or<VA, VB>(&self, va: VA, vb: VB)
-                        -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                    where VA: ::rustdata_core::specification::ToSqlValue + Send,
-                          VB: ::rustdata_core::specification::ToSqlValue + Send,
-                    {
-                        let predicate = ::rustdata_core::specification::Predicate::Or(vec![
-                            ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
-                            ::rustdata_core::specification::Predicate::#variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                            ::rustdata_core::specification::Predicate::#op_variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
                         ]);
                         self.find_all_pred(&predicate).await
                     }
                 });
 
                 qrepo_sigs.push(quote! {
-                    async fn #fn_and<VA, VB>(&self, table: &str, va: VA, vb: VB)
-                        -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                    where VA: ::rustdata_core::specification::ToSqlValue + Send,
-                          VB: ::rustdata_core::specification::ToSqlValue + Send;
-
-                    async fn #fn_or<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    async fn #fn_richer<VA, VB>(&self, table: &str, va: VA, vb: VB)
                         -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                     where VA: ::rustdata_core::specification::ToSqlValue + Send,
                           VB: ::rustdata_core::specification::ToSqlValue + Send;
                 });
 
                 qrepo_methods.push(quote! {
-                    async fn #fn_and<VA, VB>(&self, table: &str, va: VA, vb: VB)
+                    async fn #fn_richer<VA, VB>(&self, table: &str, va: VA, vb: VB)
                         -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
                     where VA: ::rustdata_core::specification::ToSqlValue + Send,
                           VB: ::rustdata_core::specification::ToSqlValue + Send,
                     {
                         let predicate = ::rustdata_core::specification::Predicate::And(vec![
                             ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
-                            ::rustdata_core::specification::Predicate::#variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
-                        ]);
-                        self.find_all_pred(table, &predicate).await
-                    }
-
-                    async fn #fn_or<VA, VB>(&self, table: &str, va: VA, vb: VB)
-                        -> ::std::result::Result<::std::vec::Vec<#struct_name>, ::rustdata_core::error::RepositoryError>
-                    where VA: ::rustdata_core::specification::ToSqlValue + Send,
-                          VB: ::rustdata_core::specification::ToSqlValue + Send,
-                    {
-                        let predicate = ::rustdata_core::specification::Predicate::Or(vec![
-                            ::rustdata_core::specification::Predicate::Eq { column: #ca.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(va) },
-                            ::rustdata_core::specification::Predicate::#variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
+                            ::rustdata_core::specification::Predicate::#op_variant { column: #cb.to_string(), value: ::rustdata_core::specification::ToSqlValue::to_sql_value(vb) },
                         ]);
                         self.find_all_pred(table, &predicate).await
                     }
                 });
             }
-        }
-    }
-
-    // ── count_by_* / exists_by_* / delete_by_* (CrudRepository only) ────
-    for entry in &col_map {
-        let col_name = &entry.col;
-
-        for (suffix, variant_str) in CMP_OPS {
-            let variant = Ident::new(variant_str, Span::call_site());
-            let fn_count = Ident::new(&format!("count_by_{}{}", entry.rust, suffix), Span::call_site());
-            let fn_exists = Ident::new(&format!("exists_by_{}{}", entry.rust, suffix), Span::call_site());
-            let fn_delete = Ident::new(&format!("delete_by_{}{}", entry.rust, suffix), Span::call_site());
-
-            crud_sigs.push(quote! {
-                async fn #fn_count<V>(&self, value: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-
-                async fn #fn_exists<V>(&self, value: V)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-
-                async fn #fn_delete<V>(&self, value: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-            });
-
-            crud_methods.push(quote! {
-                async fn #fn_count<V>(&self, value: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::#variant {
-                        column: #col_name.to_string(),
-                        value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
-                    };
-                    self.count_spec(&predicate).await
-                }
-
-                async fn #fn_exists<V>(&self, value: V)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::#variant {
-                        column: #col_name.to_string(),
-                        value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
-                    };
-                    self.count_spec(&predicate).await.map(|c| c > 0)
-                }
-
-                async fn #fn_delete<V>(&self, value: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::#variant {
-                        column: #col_name.to_string(),
-                        value:  ::rustdata_core::specification::ToSqlValue::to_sql_value(value),
-                    };
-                    self.delete_by_pred(&predicate).await
-                }
-            });
-        }
-
-        // ── count/exists/delete: LIKE ──
-        {
-            let fn_count = Ident::new(&format!("count_by_{}_like", entry.rust), Span::call_site());
-            let fn_exists = Ident::new(&format!("exists_by_{}_like", entry.rust), Span::call_site());
-            let fn_delete = Ident::new(&format!("delete_by_{}_like", entry.rust), Span::call_site());
-
-            crud_sigs.push(quote! {
-                async fn #fn_count<V>(&self, pattern: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send;
-
-                async fn #fn_exists<V>(&self, pattern: V)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send;
-
-                async fn #fn_delete<V>(&self, pattern: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send;
-            });
-
-            crud_methods.push(quote! {
-                async fn #fn_count<V>(&self, pattern: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::Like {
-                        column: #col_name.to_string(),
-                        pattern: pattern.into(),
-                    };
-                    self.count_spec(&predicate).await
-                }
-
-                async fn #fn_exists<V>(&self, pattern: V)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::Like {
-                        column: #col_name.to_string(),
-                        pattern: pattern.into(),
-                    };
-                    self.count_spec(&predicate).await.map(|c| c > 0)
-                }
-
-                async fn #fn_delete<V>(&self, pattern: V)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::std::convert::Into<::std::string::String> + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::Like {
-                        column: #col_name.to_string(),
-                        pattern: pattern.into(),
-                    };
-                    self.delete_by_pred(&predicate).await
-                }
-            });
-        }
-
-        // ── count/exists/delete: IN ──
-        {
-            let fn_count = Ident::new(&format!("count_by_{}_in", entry.rust), Span::call_site());
-            let fn_exists = Ident::new(&format!("exists_by_{}_in", entry.rust), Span::call_site());
-            let fn_delete = Ident::new(&format!("delete_by_{}_in", entry.rust), Span::call_site());
-
-            crud_sigs.push(quote! {
-                async fn #fn_count<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-
-                async fn #fn_exists<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-
-                async fn #fn_delete<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send;
-            });
-
-            crud_methods.push(quote! {
-                async fn #fn_count<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::In {
-                        column: #col_name.to_string(),
-                        values: values.into_iter().map(|v| ::rustdata_core::specification::ToSqlValue::to_sql_value(v)).collect(),
-                    };
-                    self.count_spec(&predicate).await
-                }
-
-                async fn #fn_exists<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::In {
-                        column: #col_name.to_string(),
-                        values: values.into_iter().map(|v| ::rustdata_core::specification::ToSqlValue::to_sql_value(v)).collect(),
-                    };
-                    self.count_spec(&predicate).await.map(|c| c > 0)
-                }
-
-                async fn #fn_delete<V>(&self, values: ::std::vec::Vec<V>)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                where V: ::rustdata_core::specification::ToSqlValue + Send,
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::In {
-                        column: #col_name.to_string(),
-                        values: values.into_iter().map(|v| ::rustdata_core::specification::ToSqlValue::to_sql_value(v)).collect(),
-                    };
-                    self.delete_by_pred(&predicate).await
-                }
-            });
-        }
-
-        // ── count/exists/delete: IsNull ──
-        {
-            let fn_count = Ident::new(&format!("count_by_{}_is_null", entry.rust), Span::call_site());
-            let fn_exists = Ident::new(&format!("exists_by_{}_is_null", entry.rust), Span::call_site());
-            let fn_delete = Ident::new(&format!("delete_by_{}_is_null", entry.rust), Span::call_site());
-
-            crud_sigs.push(quote! {
-                async fn #fn_count(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_exists(&self)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_delete(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>;
-            });
-
-            crud_methods.push(quote! {
-                async fn #fn_count(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.count_spec(&predicate).await
-                }
-
-                async fn #fn_exists(&self)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.count_spec(&predicate).await.map(|c| c > 0)
-                }
-
-                async fn #fn_delete(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.delete_by_pred(&predicate).await
-                }
-            });
-        }
-
-        // ── count/exists/delete: IsNotNull ──
-        {
-            let fn_count = Ident::new(&format!("count_by_{}_is_not_null", entry.rust), Span::call_site());
-            let fn_exists = Ident::new(&format!("exists_by_{}_is_not_null", entry.rust), Span::call_site());
-            let fn_delete = Ident::new(&format!("delete_by_{}_is_not_null", entry.rust), Span::call_site());
-
-            crud_sigs.push(quote! {
-                async fn #fn_count(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_exists(&self)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>;
-
-                async fn #fn_delete(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>;
-            });
-
-            crud_methods.push(quote! {
-                async fn #fn_count(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.count_spec(&predicate).await
-                }
-
-                async fn #fn_exists(&self)
-                    -> ::std::result::Result<bool, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.count_spec(&predicate).await.map(|c| c > 0)
-                }
-
-                async fn #fn_delete(&self)
-                    -> ::std::result::Result<u64, ::rustdata_core::error::RepositoryError>
-                {
-                    let predicate = ::rustdata_core::specification::Predicate::IsNotNull {
-                        column: #col_name.to_string(),
-                    };
-                    self.delete_by_pred(&predicate).await
-                }
-            });
         }
     }
 
@@ -848,14 +651,6 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
         {
             #(#qrepo_methods)*
         }
-
-        // ── Auto-import: make traits visible for method resolution ──────────
-        // Without this, callers must write `use #crud_trait_name as _;` manually.
-        #[allow(unused_imports)]
-        use #crud_trait_name as _;
-
-        #[allow(unused_imports)]
-        use #qrepo_trait_name as _;
     };
 
     proc_macro::TokenStream::from(out)
