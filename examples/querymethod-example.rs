@@ -39,13 +39,6 @@ struct User {
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
-// Bring the generated traits into scope so their methods are callable via dot syntax.
-// `#[derive(QueryMethods)]` on `User` emits:
-//   pub trait UserCrudQueryMethods<BA>  — impl'd for CrudRepository<BA, User>
-//   pub trait UserQueryQueryMethods<BA> — impl'd for QueryRepository<BA, User>
-use UserCrudQueryMethods as _;
-use UserQueryQueryMethods as _;
-
 // ─── Schema ────────────────────────────────────────────────
 
 async fn setup_schema(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {

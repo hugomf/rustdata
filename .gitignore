@@ -4,6 +4,7 @@
 .LSOverride
 ._*
 
+
 # Thumbnails
 Thumbs.db
 
@@ -40,6 +41,7 @@ rustfmt.toml
 *.exe
 *.exe~
 *.dll
+*.zip
 
 # Testing
 /coverage/

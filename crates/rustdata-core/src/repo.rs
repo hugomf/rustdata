@@ -51,9 +51,11 @@ where
 
     fn find_by_id_sql() -> String {
         let d = BA::dialect();
+        let soft = D::SOFT_DELETE_COL.map(|c| format!("AND {} IS NULL", c));
+        let soft_clause = soft.unwrap_or_default();
         format!(
-            "SELECT {} FROM {} WHERE {} = {}",
-            D::select_cols(), D::TABLE, D::id_column().name, d.ph(1)
+            "SELECT {} FROM {} WHERE {} = {}{}",
+            D::select_cols(), D::TABLE, D::id_column().name, d.ph(1), soft_clause
         )
     }
 
@@ -211,6 +213,37 @@ where
             .await
             .map_err(RepositoryError::from)?;
         Ok(<AdOf<BA> as BindAdapter<DbOf<BA>>>::rows_affected(&result) > 0)
+    }
+
+    /// Delete all rows matching a predicate.
+    ///
+    /// When soft-delete is configured, performs a soft delete (UPDATE) instead
+    /// of a hard DELETE.
+    pub async fn delete_by_pred(
+        &self,
+        predicate: &Predicate,
+    ) -> Result<u64, RepositoryError> {
+        let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
+        let sql = if let Some(col) = D::SOFT_DELETE_COL {
+            if where_clause.is_empty() {
+                format!(
+                    "UPDATE {} SET {} = {} WHERE {} IS NULL",
+                    D::TABLE, col, BA::dialect().current_timestamp(), col
+                )
+            } else {
+                format!(
+                    "UPDATE {} SET {} = {} WHERE {} IS NULL AND ({})",
+                    D::TABLE, col, BA::dialect().current_timestamp(), col, where_clause
+                )
+            }
+        } else if where_clause.is_empty() {
+            format!("DELETE FROM {}", D::TABLE)
+        } else {
+            format!("DELETE FROM {} WHERE {}", D::TABLE, where_clause)
+        };
+        let query = Self::bind_sql_values(sqlx::query(&sql), &params);
+        let result = query.execute(&self.pool).await.map_err(RepositoryError::from)?;
+        Ok(<AdOf<BA> as BindAdapter<DbOf<BA>>>::rows_affected(&result))
     }
 
     pub async fn exists_by_id(&self, id: &D::Id) -> Result<bool, RepositoryError> {
