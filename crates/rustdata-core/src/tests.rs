@@ -1,20 +1,17 @@
 use crate::{
+    ColumnDef, SqlDialect,
     column::{InsertStrategy, SqlTypeId, UpdateStrategy},
-    pagination::{Direction, Filter, FilterOperator, Page, Pageable, Sort},
     query_methods,
     query_methods::QueryMethodParser,
     specification::{Predicate, SqlValue},
-    ColumnDef, SqlDialect,
+    pagination::{Filter, FilterOperator, Sort, Direction, Page, Pageable},
 };
 
 // ─── Predicate::to_sql ───────────────────────────────────────────────
 
 #[test]
 fn predicate_eq() {
-    let p = Predicate::Eq {
-        column: "email".into(),
-        value: SqlValue::Str("a@b.com".into()),
-    };
+    let p = Predicate::Eq { column: "email".into(), value: SqlValue::Str("a@b.com".into()) };
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "email = $1");
     assert_eq!(params.len(), 1);
@@ -23,40 +20,28 @@ fn predicate_eq() {
 
 #[test]
 fn predicate_eq_sqlite_placeholder() {
-    let p = Predicate::Eq {
-        column: "x".into(),
-        value: SqlValue::I64(42),
-    };
+    let p = Predicate::Eq { column: "x".into(), value: SqlValue::I64(42) };
     let (sql, _, _) = p.to_sql(SqlDialect::Sqlite, 1);
     assert_eq!(sql, "x = ?");
 }
 
 #[test]
 fn predicate_eq_mysql_placeholder() {
-    let p = Predicate::Eq {
-        column: "x".into(),
-        value: SqlValue::I64(42),
-    };
+    let p = Predicate::Eq { column: "x".into(), value: SqlValue::I64(42) };
     let (sql, _, _) = p.to_sql(SqlDialect::MySql, 1);
     assert_eq!(sql, "x = ?");
 }
 
 #[test]
 fn predicate_ne() {
-    let p = Predicate::Ne {
-        column: "status".into(),
-        value: SqlValue::Str("archived".into()),
-    };
+    let p = Predicate::Ne { column: "status".into(), value: SqlValue::Str("archived".into()) };
     let (sql, _, _) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "status <> $1");
 }
 
 #[test]
 fn predicate_gt() {
-    let p = Predicate::Gt {
-        column: "age".into(),
-        value: SqlValue::I64(18),
-    };
+    let p = Predicate::Gt { column: "age".into(), value: SqlValue::I64(18) };
     let (sql, _, next) = p.to_sql(SqlDialect::Postgres, 3);
     assert_eq!(sql, "age > $3");
     assert_eq!(next, 4);
@@ -64,40 +49,28 @@ fn predicate_gt() {
 
 #[test]
 fn predicate_lt() {
-    let p = Predicate::Lt {
-        column: "price".into(),
-        value: SqlValue::F64(100.0),
-    };
+    let p = Predicate::Lt { column: "price".into(), value: SqlValue::F64(100.0) };
     let (sql, _, _) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "price < $1");
 }
 
 #[test]
 fn predicate_gte() {
-    let p = Predicate::Gte {
-        column: "score".into(),
-        value: SqlValue::I64(50),
-    };
+    let p = Predicate::Gte { column: "score".into(), value: SqlValue::I64(50) };
     let (sql, _, _) = p.to_sql(SqlDialect::Postgres, 2);
     assert_eq!(sql, "score >= $2");
 }
 
 #[test]
 fn predicate_lte() {
-    let p = Predicate::Lte {
-        column: "level".into(),
-        value: SqlValue::I64(10),
-    };
+    let p = Predicate::Lte { column: "level".into(), value: SqlValue::I64(10) };
     let (sql, _, _) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "level <= $1");
 }
 
 #[test]
 fn predicate_like() {
-    let p = Predicate::Like {
-        column: "name".into(),
-        pattern: "%brew%".into(),
-    };
+    let p = Predicate::Like { column: "name".into(), pattern: "%brew%".into() };
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("%brew%".into())]);
@@ -131,9 +104,7 @@ fn predicate_between() {
 
 #[test]
 fn predicate_is_null() {
-    let p = Predicate::IsNull {
-        column: "deleted_at".into(),
-    };
+    let p = Predicate::IsNull { column: "deleted_at".into() };
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "deleted_at IS NULL");
     assert!(params.is_empty());
@@ -142,9 +113,7 @@ fn predicate_is_null() {
 
 #[test]
 fn predicate_is_not_null() {
-    let p = Predicate::IsNotNull {
-        column: "email".into(),
-    };
+    let p = Predicate::IsNotNull { column: "email".into() };
     let (sql, _, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "email IS NOT NULL");
     assert_eq!(next, 1);
@@ -153,14 +122,8 @@ fn predicate_is_not_null() {
 #[test]
 fn predicate_and() {
     let p = Predicate::And(vec![
-        Predicate::Eq {
-            column: "status".into(),
-            value: SqlValue::Str("active".into()),
-        },
-        Predicate::Gt {
-            column: "age".into(),
-            value: SqlValue::I64(18),
-        },
+        Predicate::Eq { column: "status".into(), value: SqlValue::Str("active".into()) },
+        Predicate::Gt { column: "age".into(), value: SqlValue::I64(18) },
     ]);
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "(status = $1 AND age > $2)");
@@ -172,19 +135,10 @@ fn predicate_and() {
 fn predicate_and_nested() {
     let p = Predicate::And(vec![
         Predicate::And(vec![
-            Predicate::Eq {
-                column: "a".into(),
-                value: SqlValue::I64(1),
-            },
-            Predicate::Eq {
-                column: "b".into(),
-                value: SqlValue::I64(2),
-            },
+            Predicate::Eq { column: "a".into(), value: SqlValue::I64(1) },
+            Predicate::Eq { column: "b".into(), value: SqlValue::I64(2) },
         ]),
-        Predicate::Eq {
-            column: "c".into(),
-            value: SqlValue::I64(3),
-        },
+        Predicate::Eq { column: "c".into(), value: SqlValue::I64(3) },
     ]);
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "((a = $1 AND b = $2) AND c = $3)");
@@ -195,14 +149,8 @@ fn predicate_and_nested() {
 #[test]
 fn predicate_or() {
     let p = Predicate::Or(vec![
-        Predicate::Eq {
-            column: "role".into(),
-            value: SqlValue::Str("admin".into()),
-        },
-        Predicate::Eq {
-            column: "role".into(),
-            value: SqlValue::Str("mod".into()),
-        },
+        Predicate::Eq { column: "role".into(), value: SqlValue::Str("admin".into()) },
+        Predicate::Eq { column: "role".into(), value: SqlValue::Str("mod".into()) },
     ]);
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "(role = $1 OR role = $2)");
@@ -212,10 +160,7 @@ fn predicate_or() {
 
 #[test]
 fn predicate_not() {
-    let inner = Predicate::Eq {
-        column: "deleted".into(),
-        value: SqlValue::Bool(true),
-    };
+    let inner = Predicate::Eq { column: "deleted".into(), value: SqlValue::Bool(true) };
     let p = Predicate::Not(Box::new(inner));
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "NOT (deleted = $1)");
@@ -225,10 +170,7 @@ fn predicate_not() {
 
 #[test]
 fn predicate_raw() {
-    let p = Predicate::Raw {
-        sql: "EXTRACT(YEAR FROM created_at) = $1",
-        params: vec![SqlValue::I64(2024)],
-    };
+    let p = Predicate::Raw { sql: "EXTRACT(YEAR FROM created_at) = $1", params: vec![SqlValue::I64(2024)] };
     let (sql, params, next) = p.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "EXTRACT(YEAR FROM created_at) = $1");
     assert_eq!(params.len(), 1);
@@ -247,14 +189,8 @@ fn predicate_none() {
 #[test]
 fn predicate_offset_propagation() {
     let p = Predicate::And(vec![
-        Predicate::Eq {
-            column: "a".into(),
-            value: SqlValue::I64(1),
-        },
-        Predicate::Eq {
-            column: "b".into(),
-            value: SqlValue::I64(2),
-        },
+        Predicate::Eq { column: "a".into(), value: SqlValue::I64(1) },
+        Predicate::Eq { column: "b".into(), value: SqlValue::I64(2) },
     ]);
     let (sql, _, next) = p.to_sql(SqlDialect::Postgres, 10);
     assert_eq!(sql, "(a = $10 AND b = $11)");
@@ -266,76 +202,55 @@ fn predicate_offset_propagation() {
 #[test]
 fn parse_single_field() {
     let parsed = QueryMethodParser::parse("find_by_email").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![("email".to_string(), "eq".to_string())]
-    );
+    assert_eq!(parsed.conditions, vec![("email".to_string(), "eq".to_string())]);
     assert_eq!(parsed.conjunction, query_methods::Conjunction::And);
 }
 
 #[test]
 fn parse_multi_field_and() {
     let parsed = QueryMethodParser::parse("find_by_organization_id_and_status").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![
-            ("organization_id".to_string(), "eq".to_string()),
-            ("status".to_string(), "eq".to_string()),
-        ]
-    );
+    assert_eq!(parsed.conditions, vec![
+        ("organization_id".to_string(), "eq".to_string()),
+        ("status".to_string(), "eq".to_string()),
+    ]);
     assert_eq!(parsed.conjunction, query_methods::Conjunction::And);
 }
 
 #[test]
 fn parse_multi_field_or() {
     let parsed = QueryMethodParser::parse("find_by_email_or_phone").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![
-            ("email".to_string(), "eq".to_string()),
-            ("phone".to_string(), "eq".to_string()),
-        ]
-    );
+    assert_eq!(parsed.conditions, vec![
+        ("email".to_string(), "eq".to_string()),
+        ("phone".to_string(), "eq".to_string()),
+    ]);
     assert_eq!(parsed.conjunction, query_methods::Conjunction::Or);
 }
 
 #[test]
 fn parse_with_operator_ne() {
     let parsed = QueryMethodParser::parse("find_by_email_ne").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![("email".to_string(), "ne".to_string())]
-    );
+    assert_eq!(parsed.conditions, vec![("email".to_string(), "ne".to_string())]);
 }
 
 #[test]
 fn parse_with_operator_gt() {
     let parsed = QueryMethodParser::parse("find_by_age_gt").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![("age".to_string(), "gt".to_string())]
-    );
+    assert_eq!(parsed.conditions, vec![("age".to_string(), "gt".to_string())]);
 }
 
 #[test]
 fn parse_with_operator_like() {
     let parsed = QueryMethodParser::parse("find_by_name_like").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![("name".to_string(), "like".to_string())]
-    );
+    assert_eq!(parsed.conditions, vec![("name".to_string(), "like".to_string())]);
 }
 
 #[test]
 fn parse_with_operator_and_conjunction() {
     let parsed = QueryMethodParser::parse("find_by_email_ne_and_age_gt").unwrap();
-    assert_eq!(
-        parsed.conditions,
-        vec![
-            ("email".to_string(), "ne".to_string()),
-            ("age".to_string(), "gt".to_string()),
-        ]
-    );
+    assert_eq!(parsed.conditions, vec![
+        ("email".to_string(), "ne".to_string()),
+        ("age".to_string(), "gt".to_string()),
+    ]);
     assert_eq!(parsed.conjunction, query_methods::Conjunction::And);
 }
 
@@ -374,10 +289,7 @@ fn build_predicate_multi_and() {
         ],
         conjunction: query_methods::Conjunction::And,
     };
-    let values = vec![
-        SqlValue::Str("a@b.com".into()),
-        SqlValue::Str("active".into()),
-    ];
+    let values = vec![SqlValue::Str("a@b.com".into()), SqlValue::Str("active".into())];
     let pred = QueryMethodParser::build_predicate(parsed, values).unwrap();
     match pred {
         Predicate::And(preds) => assert_eq!(preds.len(), 2),
@@ -495,20 +407,14 @@ fn current_timestamp() {
 fn render_pagination_limit_offset() {
     let sql = "SELECT * FROM users";
     let result = SqlDialect::Postgres.render_pagination(sql, "ORDER BY id ASC", 10, 20);
-    assert_eq!(
-        result,
-        "SELECT * FROM users ORDER BY id ASC LIMIT 20 OFFSET 10"
-    );
+    assert_eq!(result, "SELECT * FROM users ORDER BY id ASC LIMIT 20 OFFSET 10");
 }
 
 #[test]
 fn render_pagination_mssql() {
     let sql = "SELECT * FROM users";
     let result = SqlDialect::MsSql.render_pagination(sql, "ORDER BY id ASC", 10, 20);
-    assert_eq!(
-        result,
-        "SELECT * FROM users ORDER BY id ASC OFFSET 10 ROWS FETCH NEXT 20 ROWS ONLY"
-    );
+    assert_eq!(result, "SELECT * FROM users ORDER BY id ASC OFFSET 10 ROWS FETCH NEXT 20 ROWS ONLY");
 }
 
 // ─── ColumnDef builder ──────────────────────────────────────────────
@@ -591,10 +497,7 @@ fn sql_gen_select_cols() {
         ColumnDef::new("email", SqlTypeId::Varchar),
         ColumnDef::new("data", SqlTypeId::Jsonb).json(),
     ];
-    assert_eq!(
-        crate::column::sql_gen::select_cols(&cols),
-        "id, email, data"
-    );
+    assert_eq!(crate::column::sql_gen::select_cols(&cols), "id, email, data");
 }
 
 #[test]
@@ -659,7 +562,9 @@ fn sql_gen_default_order_by() {
 
 #[test]
 fn sql_gen_default_order_by_no_id() {
-    let cols = vec![ColumnDef::new("email", SqlTypeId::Varchar)];
+    let cols = vec![
+        ColumnDef::new("email", SqlTypeId::Varchar),
+    ];
     assert_eq!(crate::column::sql_gen::default_order_by(&cols), "1 ASC");
 }
 
@@ -667,11 +572,7 @@ fn sql_gen_default_order_by_no_id() {
 
 #[test]
 fn filter_eq() {
-    let f = Filter {
-        column: "status".into(),
-        operator: FilterOperator::Eq,
-        value: SqlValue::Str("active".into()),
-    };
+    let f = Filter { column: "status".into(), operator: FilterOperator::Eq, value: SqlValue::Str("active".into()) };
     let (sql, params, next) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "status = $1");
     assert_eq!(next, 2);
@@ -680,44 +581,28 @@ fn filter_eq() {
 
 #[test]
 fn filter_ne() {
-    let f = Filter {
-        column: "status".into(),
-        operator: FilterOperator::Ne,
-        value: SqlValue::Str("deleted".into()),
-    };
+    let f = Filter { column: "status".into(), operator: FilterOperator::Ne, value: SqlValue::Str("deleted".into()) };
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "status != $1");
 }
 
 #[test]
 fn filter_is_null() {
-    let f = Filter {
-        column: "deleted_at".into(),
-        operator: FilterOperator::IsNull,
-        value: SqlValue::Null(SqlTypeId::TimestampTz),
-    };
+    let f = Filter { column: "deleted_at".into(), operator: FilterOperator::IsNull, value: SqlValue::Null(SqlTypeId::TimestampTz) };
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "deleted_at IS NULL");
 }
 
 #[test]
 fn filter_like() {
-    let f = Filter {
-        column: "name".into(),
-        operator: FilterOperator::Like,
-        value: SqlValue::Str("%brew%".into()),
-    };
+    let f = Filter { column: "name".into(), operator: FilterOperator::Like, value: SqlValue::Str("%brew%".into()) };
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
 }
 
 #[test]
 fn filter_contains() {
-    let f = Filter {
-        column: "name".into(),
-        operator: FilterOperator::Contains,
-        value: SqlValue::Str("brew".into()),
-    };
+    let f = Filter { column: "name".into(), operator: FilterOperator::Contains, value: SqlValue::Str("brew".into()) };
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("%brew%".into())]);
@@ -725,11 +610,7 @@ fn filter_contains() {
 
 #[test]
 fn filter_starts_with() {
-    let f = Filter {
-        column: "name".into(),
-        operator: FilterOperator::StartsWith,
-        value: SqlValue::Str("brew".into()),
-    };
+    let f = Filter { column: "name".into(), operator: FilterOperator::StartsWith, value: SqlValue::Str("brew".into()) };
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("brew%".into())]);
@@ -737,11 +618,7 @@ fn filter_starts_with() {
 
 #[test]
 fn filter_ends_with() {
-    let f = Filter {
-        column: "name".into(),
-        operator: FilterOperator::EndsWith,
-        value: SqlValue::Str("brew".into()),
-    };
+    let f = Filter { column: "name".into(), operator: FilterOperator::EndsWith, value: SqlValue::Str("brew".into()) };
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("%brew".into())]);
@@ -749,11 +626,7 @@ fn filter_ends_with() {
 
 #[test]
 fn filter_offset_propagation() {
-    let f = Filter {
-        column: "x".into(),
-        operator: FilterOperator::Eq,
-        value: SqlValue::I64(1),
-    };
+    let f = Filter { column: "x".into(), operator: FilterOperator::Eq, value: SqlValue::I64(1) };
     let (sql, _, next) = f.to_sql(SqlDialect::Postgres, 5);
     assert_eq!(sql, "x = $5");
     assert_eq!(next, 6);

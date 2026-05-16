@@ -39,39 +39,46 @@ pub enum RepositoryError {
 impl From<sqlx::Error> for RepositoryError {
     fn from(e: sqlx::Error) -> Self {
         match e {
+            // fetch_optional returns Ok(None) for missing rows — RowNotFound
+            // only appears when using fetch_one on a query that returns zero rows,
+            // which we avoid. Map it defensively rather than panicking.
             sqlx::Error::RowNotFound => RepositoryError::NotFound {
                 entity: "unknown".into(),
                 id: "unknown".into(),
             },
             sqlx::Error::Database(ref db_err) => {
                 let code = db_err.code().map(|c| c.to_string());
-                match code.as_deref() {
-                    Some("23505") => RepositoryError::UniqueViolation {
+                let msg  = db_err.message().to_lowercase();
+
+                // Unique constraint — checked by numeric code where available,
+                // then by message text for SQLite (which has no numeric codes).
+                if matches!(code.as_deref(), Some("23505") | Some("1062") | Some("1555") | Some("2067"))
+                    || msg.contains("unique constraint")
+                    || msg.contains("duplicate entry")
+                    || msg.contains("unique_violation")
+                {
+                    return RepositoryError::UniqueViolation {
                         constraint: db_err.constraint().unwrap_or("unknown").into(),
                         detail: db_err.message().into(),
-                    },
-                    Some("23503") => RepositoryError::ForeignKeyViolation {
-                        detail: db_err.message().into(),
-                    },
-                    Some("57014") => RepositoryError::Timeout(0),
-                    // MSSQL
-                    Some("1555") | Some("2067") => RepositoryError::UniqueViolation {
-                        constraint: db_err.constraint().unwrap_or("unknown").into(),
-                        detail: db_err.message().into(),
-                    },
-                    Some("787") => RepositoryError::ForeignKeyViolation {
-                        detail: db_err.message().into(),
-                    },
-                    // MySQL
-                    Some("1062") => RepositoryError::UniqueViolation {
-                        constraint: db_err.constraint().unwrap_or("unknown").into(),
-                        detail: db_err.message().into(),
-                    },
-                    Some("1452") => RepositoryError::ForeignKeyViolation {
-                        detail: db_err.message().into(),
-                    },
-                    _ => RepositoryError::Database(db_err.message().into()),
+                    };
                 }
+
+                // Foreign key constraint
+                if matches!(code.as_deref(), Some("23503") | Some("1452") | Some("787"))
+                    || msg.contains("foreign key constraint")
+                    || msg.contains("foreign key violation")
+                {
+                    return RepositoryError::ForeignKeyViolation {
+                        detail: db_err.message().into(),
+                    };
+                }
+
+                // Query timeout (Postgres)
+                if code.as_deref() == Some("57014") {
+                    return RepositoryError::Timeout(0);
+                }
+
+                RepositoryError::Database(db_err.message().into())
             }
             sqlx::Error::PoolTimedOut => RepositoryError::Connection("pool timed out".into()),
             sqlx::Error::PoolClosed => RepositoryError::Unavailable("pool closed".into()),

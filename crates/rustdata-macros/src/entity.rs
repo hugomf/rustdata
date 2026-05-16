@@ -10,6 +10,11 @@ struct EntityAttrs {
     order_by: Option<String>,
     soft_delete: Option<String>,
     entity_type: Option<String>,
+    /// Path to a type that implements `LifecycleHooks`.
+    /// When set, the derive skips emitting a blank `LifecycleHooks` impl
+    /// so the custom one can be provided instead.
+    /// Example: `#[entity(hooks = "MyEntityHooks")]`
+    hooks: Option<String>,
 }
 
 #[derive(Debug, Default, FromField)]
@@ -54,6 +59,30 @@ pub fn expand_derive(input: DeriveInput) -> TokenStream {
     let entity_ctor = match &entity_type {
         Some(et) => quote! { #et },
         None => quote! { #struct_name },
+    };
+
+    // If the user supplies #[entity(hooks = "MyHooks")], the trait impl is
+    // delegated to that type and we skip the blank default impl.  Otherwise
+    // we emit `impl LifecycleHooks<Entity> for Struct {}` so that the trait
+    // bound on CrudRepository is satisfied without any user boilerplate.
+    let hooks_impl = match entity_attrs.hooks.as_deref() {
+        Some(hooks_path) => {
+            let hooks_ty: syn::Type = syn::parse_str(hooks_path)
+                .expect("hooks attribute must be a valid Rust type path");
+            quote! {
+                impl ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor> for #struct_name {
+                    fn before_save(entity: &mut #entity_ctor) -> ::std::result::Result<(), ::rustdata_core::error::RepositoryError> {
+                        <#hooks_ty as ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor>>::before_save(entity)
+                    }
+                    fn after_save(entity: &#entity_ctor) -> ::std::result::Result<(), ::rustdata_core::error::RepositoryError> {
+                        <#hooks_ty as ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor>>::after_save(entity)
+                    }
+                }
+            }
+        }
+        None => quote! {
+            impl ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor> for #struct_name {}
+        },
     };
 
     let fields = match &input.data {
@@ -153,7 +182,7 @@ pub fn expand_derive(input: DeriveInput) -> TokenStream {
     let soft_delete_val = soft_delete_col;
 
     let result = quote! {
-        impl ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor> for #struct_name {}
+        #hooks_impl
 
         impl ::rustdata_core::descriptor::EntityDescriptor for #struct_name {
             type Entity = #entity_ctor;

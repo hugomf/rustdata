@@ -5,5 +5,8 @@ pub trait Projection: Sized {
 
     fn columns() -> &'static [ColumnDef];
 
-    fn from_row<E: RowExtractor>(row: &E::Row, ext: &E) -> Result<Self, RepositoryError>;
+    fn from_row<E: RowExtractor>(
+        row: &E::Row,
+        ext: &E,
+    ) -> Result<Self, RepositoryError>;
 }

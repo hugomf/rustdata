@@ -10,13 +10,7 @@ pub enum Dialect {
 
 impl Dialect {
     pub fn all() -> &'static [Dialect] {
-        &[
-            Self::Postgres,
-            Self::Sqlite,
-            Self::MySql,
-            Self::MsSql,
-            Self::Oracle,
-        ]
+        &[Self::Postgres, Self::Sqlite, Self::MySql, Self::MsSql, Self::Oracle]
     }
 
     pub fn name(&self) -> &'static str {

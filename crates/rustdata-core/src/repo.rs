@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    backend::{AdOf, Backend, DbBound, DbOf, ExOf, RowOf},
+    backend::{Backend, DbBound, DbOf, AdOf, ExOf, RowOf},
     bind::BindAdapter,
     column::SqlTypeId,
     descriptor::RowExtractor,
@@ -9,9 +9,9 @@ use crate::{
     entity::EntityDescriptor,
     error::RepositoryError,
     lifecycle::LifecycleHooks,
-    pagination::{Filter, Page, Pageable},
+    pagination::{Page, Pageable, Filter},
+    specification::{Predicate, SqlValue, Specification},
     query_methods::QueryMethodParser,
-    specification::{Predicate, Specification, SqlValue},
 };
 
 #[derive(Debug)]
@@ -23,11 +23,7 @@ pub struct CrudRepository<BA: Backend, D: EntityDescriptor> {
 
 impl<BA: Backend, D: EntityDescriptor> CrudRepository<BA, D> {
     pub fn new(pool: sqlx::Pool<DbOf<BA>>) -> Self {
-        Self {
-            pool,
-            _ba: PhantomData,
-            _d: PhantomData,
-        }
+        Self { pool, _ba: PhantomData, _d: PhantomData }
     }
 
     pub fn dialect(&self) -> SqlDialect {
@@ -39,8 +35,7 @@ impl<BA, D> CrudRepository<BA, D>
 where
     BA: DbBound,
     for<'q> <DbOf<BA> as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DbOf<BA>>,
-    for<'c> &'c mut <DbOf<BA> as sqlx::Database>::Connection:
-        sqlx::Executor<'c, Database = DbOf<BA>>,
+    for<'c> &'c mut <DbOf<BA> as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DbOf<BA>>,
     ExOf<BA>: RowExtractor<Row = <DbOf<BA> as sqlx::Database>::Row>,
     D: EntityDescriptor + LifecycleHooks<D::Entity>,
     D::Id: Clone,
@@ -58,10 +53,7 @@ where
         let d = BA::dialect();
         format!(
             "SELECT {} FROM {} WHERE {} = {}",
-            D::select_cols(),
-            D::TABLE,
-            D::id_column().name,
-            d.ph(1)
+            D::select_cols(), D::TABLE, D::id_column().name, d.ph(1)
         )
     }
 
@@ -69,23 +61,12 @@ where
         let d = BA::dialect();
         let set = D::update_set(d);
         let id_ph = d.ph(D::update_param_count() + 1);
-        format!(
-            "UPDATE {} SET {} WHERE {} = {}",
-            D::TABLE,
-            set,
-            D::id_column().name,
-            id_ph
-        )
+        format!("UPDATE {} SET {} WHERE {} = {}", D::TABLE, set, D::id_column().name, id_ph)
     }
 
     fn delete_sql() -> String {
         let d = BA::dialect();
-        format!(
-            "DELETE FROM {} WHERE {} = {}",
-            D::TABLE,
-            D::id_column().name,
-            d.ph(1)
-        )
+        format!("DELETE FROM {} WHERE {} = {}", D::TABLE, D::id_column().name, d.ph(1))
     }
 
     fn soft_delete_sql() -> String {
@@ -93,12 +74,7 @@ where
         let col = D::SOFT_DELETE_COL.expect("soft_delete_sql called but SOFT_DELETE_COL is None");
         format!(
             "UPDATE {} SET {} = {} WHERE {} = {} AND {} IS NULL",
-            D::TABLE,
-            col,
-            d.current_timestamp(),
-            D::id_column().name,
-            d.ph(1),
-            col
+            D::TABLE, col, d.current_timestamp(), D::id_column().name, d.ph(1), col
         )
     }
 
@@ -130,8 +106,7 @@ where
         let base = format!("SELECT COUNT(*) as count FROM {}", D::TABLE);
         let soft = D::SOFT_DELETE_COL.map(|c| format!("{} IS NULL", c));
         if where_clause.is_empty() {
-            soft.map(|s| format!("{} WHERE {}", base, s))
-                .unwrap_or(base)
+            soft.map(|s| format!("{} WHERE {}", base, s)).unwrap_or(base)
         } else if let Some(s) = soft {
             format!("{} WHERE {} AND ({})", base, s, where_clause)
         } else {
@@ -143,8 +118,7 @@ where
         let base = format!("SELECT {} FROM {}", D::select_cols(), D::TABLE);
         let soft = D::SOFT_DELETE_COL.map(|c| format!("{} IS NULL", c));
         let from_where = if where_clause.is_empty() {
-            soft.map(|s| format!("{} WHERE {}", base, s))
-                .unwrap_or(base)
+            soft.map(|s| format!("{} WHERE {}", base, s)).unwrap_or(base)
         } else if let Some(s) = soft {
             format!("{} WHERE {} AND ({})", base, s, where_clause)
         } else {
@@ -256,10 +230,7 @@ where
         let (where_clause, params) = Self::build_where_clause(filters, self.dialect());
         let sql = Self::count_sql(&where_clause);
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let row = query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         ext.get_i64(&row, "count").map(|n| n as u64)
     }
@@ -270,15 +241,11 @@ where
         let select_sql = Self::select_sql(&where_clause, &sort_clause);
         let paginated_sql = self.dialect().render_pagination(
             &select_sql,
-            "",
             pageable.offset() as i64,
             pageable.size as i64,
         );
         let query = Self::bind_sql_values(sqlx::query(&paginated_sql), &params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         let content: Result<Vec<_>, _> = rows.iter().map(|r| Self::hydrate(r)).collect();
         let total = self.count_with_filters(&pageable.filters).await?;
         Ok(Page::new(content?, total, pageable))
@@ -314,10 +281,7 @@ where
         let sort_clause = format!("ORDER BY {}", D::ORDER_BY);
         let sql = Self::select_sql(&where_clause, &sort_clause);
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         rows.iter().map(|r| Self::hydrate(r)).collect()
     }
 
@@ -333,10 +297,7 @@ where
 
         let count_sql = Self::count_sql(&where_clause);
         let count_query = Self::bind_sql_values(sqlx::query(&count_sql), &params);
-        let count_row = count_query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let count_row = count_query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         let total = ext.get_i64(&count_row, "count")? as u64;
 
@@ -344,15 +305,11 @@ where
         let select_sql = Self::select_sql(&where_clause, &sort_clause);
         let paginated_sql = self.dialect().render_pagination(
             &select_sql,
-            "",
             pageable.offset() as i64,
             pageable.size as i64,
         );
         let query = Self::bind_sql_values(sqlx::query(&paginated_sql), &params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         let content: Result<Vec<_>, _> = rows.iter().map(|r| Self::hydrate(r)).collect();
         Ok(Page::new(content?, total, pageable))
     }
@@ -365,30 +322,30 @@ where
         let sort_clause = format!("ORDER BY {}", D::ORDER_BY);
         let sql = Self::select_sql(&where_clause, &sort_clause);
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let row = query
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_optional(&self.pool).await.map_err(RepositoryError::from)?;
         match row {
             Some(r) => Ok(Some(Self::hydrate(&r)?)),
             None => Ok(None),
         }
     }
 
-    pub async fn count_pred(&self, predicate: &Predicate) -> Result<u64, RepositoryError> {
+    pub async fn count_pred(
+        &self,
+        predicate: &Predicate,
+    ) -> Result<u64, RepositoryError> {
         let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
         let sql = Self::count_sql(&where_clause);
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let row = query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         ext.get_i64(&row, "count").map(|n| n as u64)
     }
 
     /// Delete all rows matching a predicate. Respects soft-delete when configured.
-    pub async fn delete_pred(&self, predicate: &Predicate) -> Result<u64, RepositoryError> {
+    pub async fn delete_pred(
+        &self,
+        predicate: &Predicate,
+    ) -> Result<u64, RepositoryError> {
         let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
         let sql = if let Some(col) = D::SOFT_DELETE_COL {
             let soft_where = if where_clause.is_empty() {
@@ -432,10 +389,7 @@ where
 
         let count_sql = Self::count_sql(&where_clause);
         let count_query = Self::bind_sql_values(sqlx::query(&count_sql), &params);
-        let count_row = count_query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let count_row = count_query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         let total = ext.get_i64(&count_row, "count")? as u64;
 
@@ -443,15 +397,11 @@ where
         let select_sql = Self::select_sql(&where_clause, &sort_clause);
         let paginated_sql = self.dialect().render_pagination(
             &select_sql,
-            "",
             pageable.offset() as i64,
             pageable.size as i64,
         );
         let query = Self::bind_sql_values(sqlx::query(&paginated_sql), &params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         let content: Result<Vec<_>, _> = rows.iter().map(|r| Self::hydrate(r)).collect();
         Ok(Page::new(content?, total, pageable))
     }
@@ -464,10 +414,7 @@ where
         let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
         let sql = Self::count_sql(&where_clause);
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
-        let row = query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_one(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         ext.get_i64(&row, "count").map(|n| n as u64)
     }
@@ -485,15 +432,26 @@ where
     ) -> Result<Vec<D::Entity>, RepositoryError> {
         let mut tx = self.pool.begin().await.map_err(RepositoryError::from)?;
         let mut results = Vec::with_capacity(entities.len());
+        let insert_sql = Self::insert_sql();
         for mut entity in entities {
-            D::before_save(&mut entity)?;
-            let sql = Self::insert_sql();
-            D::bind_insert::<DbOf<BA>, AdOf<BA>>(sqlx::query(&sql), &entity)
-                .execute(&mut *tx)
-                .await
-                .map_err(RepositoryError::from)?;
-            D::after_save(&entity)?;
-            results.push(entity);
+            let step = async {
+                D::before_save(&mut entity)?;
+                D::bind_insert::<DbOf<BA>, AdOf<BA>>(sqlx::query(&insert_sql), &entity)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(RepositoryError::from)?;
+                D::after_save(&entity)?;
+                Ok::<_, RepositoryError>(entity)
+            };
+            match step.await {
+                Ok(saved) => results.push(saved),
+                Err(e) => {
+                    // Best-effort rollback; ignore secondary error so the
+                    // original error is what the caller sees.
+                    let _ = tx.rollback().await;
+                    return Err(e);
+                }
+            }
         }
         tx.commit().await.map_err(RepositoryError::from)?;
         Ok(results)
@@ -504,10 +462,7 @@ where
             SqlDialect::Postgres => format!("TRUNCATE TABLE {} CASCADE", D::TABLE),
             _ => format!("DELETE FROM {}", D::TABLE),
         };
-        sqlx::query(&sql)
-            .execute(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        sqlx::query(&sql).execute(&self.pool).await.map_err(RepositoryError::from)?;
         Ok(())
     }
 
@@ -520,10 +475,7 @@ where
     ) -> Result<Option<D::Entity>, RepositoryError> {
         let rendered = self.dialect().render(sql);
         let query = Self::bind_sql_values(sqlx::query(&rendered), params);
-        let row = query
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_optional(&self.pool).await.map_err(RepositoryError::from)?;
         match row {
             Some(r) => Ok(Some(Self::hydrate(&r)?)),
             None => Ok(None),
@@ -537,10 +489,7 @@ where
     ) -> Result<Vec<D::Entity>, RepositoryError> {
         let rendered = self.dialect().render(sql);
         let query = Self::bind_sql_values(sqlx::query(&rendered), params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         rows.iter().map(|r| Self::hydrate(r)).collect()
     }
 
@@ -574,9 +523,10 @@ where
             SqlValue::DateTime(d) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_datetime(q, *d),
             SqlValue::Json(v) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_json_value(q, v.clone()),
             SqlValue::Bytes(b) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_bytes(q, b.as_slice()),
-            SqlValue::OptStr(s) => {
-                <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_str(q, s.as_ref().map(|s| s.as_str()))
-            }
+            SqlValue::OptStr(s) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_str(
+                q,
+                s.as_ref().map(|s| s.as_str()),
+            ),
             SqlValue::Null(tid) => match tid {
                 SqlTypeId::Uuid => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_uuid(q, None),
                 SqlTypeId::TimestampTz => {

@@ -49,21 +49,25 @@ impl SqlDialect {
         result
     }
 
+    /// Wrap `sql` (which must already include an `ORDER BY` clause) with
+    /// dialect-appropriate pagination syntax.
+    ///
+    /// The `ORDER BY` clause must be part of `sql` before calling this —
+    /// use `select_sql` + `build_sort_clause` in the repo to produce it.
     pub fn render_pagination(
         &self,
         sql: &str,
-        sort_clause: &str,
         offset: i64,
         limit: i64,
     ) -> String {
         match self {
             Self::Postgres | Self::Sqlite | Self::MySql => {
-                format!("{} {} LIMIT {} OFFSET {}", sql, sort_clause, limit, offset)
+                format!("{} LIMIT {} OFFSET {}", sql, limit, offset)
             }
             Self::MsSql => {
                 format!(
-                    "{} {} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
-                    sql, sort_clause, offset, limit
+                    "{} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
+                    sql, offset, limit
                 )
             }
         }

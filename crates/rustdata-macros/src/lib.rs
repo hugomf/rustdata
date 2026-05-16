@@ -26,7 +26,7 @@ pub fn derive_projection(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(QueryMethods, attributes(entity))]
 pub fn derive_query_methods(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
-    query_methods_derive::query_methods_derive(input)
+    query_methods_derive::query_methods_derive(input).into()
 }
 
 #[cfg(test)]

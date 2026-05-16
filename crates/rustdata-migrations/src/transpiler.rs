@@ -80,10 +80,7 @@ impl Transpiler {
             }
 
             // Skip migration/description/col annotations
-            if trimmed.starts_with("-- @migration")
-                || trimmed.starts_with("-- @description")
-                || trimmed.starts_with("-- @col ")
-            {
+            if trimmed.starts_with("-- @migration") || trimmed.starts_with("-- @description") || trimmed.starts_with("-- @col ") {
                 continue;
             }
 
@@ -104,16 +101,11 @@ impl Transpiler {
     }
 
     fn apply_passes(&self, line: &str, warnings: &mut Vec<String>) -> String {
-        self.pass_structural(
-            &self.pass_varchar_substitution(
-                &self.pass_default_substitution(
-                    &self.pass_type_substitution(line, warnings),
-                    warnings,
-                ),
-                warnings,
-            ),
-            warnings,
-        )
+        let line = self.pass_type_substitution(line, warnings);
+        let line = self.pass_default_substitution(&line, warnings);
+        let line = self.pass_varchar_substitution(&line, warnings);
+        let line = self.pass_structural(&line, warnings);
+        line
     }
 
     /// Pass 2: Type name substitution (UUID → TEXT, JSONB → NVARCHAR(MAX), etc.)
@@ -144,15 +136,8 @@ impl Transpiler {
         let mut search_start = 0;
         while let Some(pos) = text[search_start..].find(token) {
             let abs_pos = search_start + pos;
-            let before = abs_pos
-                .checked_sub(1)
-                .map(|i| text.as_bytes()[i])
-                .unwrap_or(b' ');
-            let after = text
-                .as_bytes()
-                .get(abs_pos + token.len())
-                .copied()
-                .unwrap_or(b' ');
+            let before = abs_pos.checked_sub(1).map(|i| text.as_bytes()[i]).unwrap_or(b' ');
+            let after = text.as_bytes().get(abs_pos + token.len()).copied().unwrap_or(b' ');
             let is_start = !before.is_ascii_alphanumeric() && before != b'_';
             let is_end = !after.is_ascii_alphanumeric() && after != b'_';
             if is_start && is_end {
@@ -175,22 +160,16 @@ impl Transpiler {
                 let bytes = line.as_bytes();
                 while i < line.len() {
                     if i + 7 < line.len()
-                        && bytes[i..i + 7].eq_ignore_ascii_case(b"VARCHAR")
-                        && (i == 0 || !bytes[i - 1].is_ascii_alphabetic())
-                        && (i + 7 >= line.len() || !bytes[i + 7].is_ascii_alphabetic())
+                        && bytes[i..i+7].eq_ignore_ascii_case(b"VARCHAR")
+                        && (i == 0 || !bytes[i-1].is_ascii_alphabetic())
+                        && (i + 7 >= line.len() || !bytes[i+7].is_ascii_alphabetic())
                     {
                         result.push_str("TEXT");
                         i += 7;
-                        if i < line.len() && bytes[i] == b' ' {
-                            i += 1;
-                        }
+                        if i < line.len() && bytes[i] == b' ' { i += 1; }
                         if i < line.len() && bytes[i] == b'(' {
-                            while i < line.len() && bytes[i] != b')' {
-                                i += 1;
-                            }
-                            if i < line.len() {
-                                i += 1;
-                            }
+                            while i < line.len() && bytes[i] != b')' { i += 1; }
+                            if i < line.len() { i += 1; }
                         }
                     } else {
                         result.push(bytes[i] as char);
@@ -205,11 +184,11 @@ impl Transpiler {
                 let bytes = line.as_bytes();
                 while i < line.len() {
                     if i + 7 < line.len()
-                        && bytes[i..i + 7].eq_ignore_ascii_case(b"VARCHAR")
-                        && (i == 0 || !bytes[i - 1].is_ascii_alphabetic())
-                        && (i + 7 >= line.len() || !bytes[i + 7].is_ascii_alphabetic())
+                        && bytes[i..i+7].eq_ignore_ascii_case(b"VARCHAR")
+                        && (i == 0 || !bytes[i-1].is_ascii_alphabetic())
+                        && (i + 7 >= line.len() || !bytes[i+7].is_ascii_alphabetic())
                     {
-                        let prev_is_n = i > 0 && bytes[i - 1].eq_ignore_ascii_case(&b'N');
+                        let prev_is_n = i > 0 && bytes[i-1].eq_ignore_ascii_case(&b'N');
                         if !prev_is_n {
                             result.push_str("NVARCHAR");
                             i += 7;
@@ -224,7 +203,9 @@ impl Transpiler {
                 }
                 result
             }
-            Dialect::Oracle => line.replace("VARCHAR(", "VARCHAR2("),
+            Dialect::Oracle => {
+                line.replace("VARCHAR(", "VARCHAR2(")
+            }
             _ => line.to_string(),
         }
     }
@@ -248,10 +229,7 @@ impl Transpiler {
 
         match self.dialect {
             Dialect::Sqlite => {
-                result = result.replace(
-                    "DEFAULT gen_random_uuid()",
-                    "DEFAULT (lower(hex(randomblob(16))))",
-                );
+                result = result.replace("DEFAULT gen_random_uuid()", "DEFAULT (lower(hex(randomblob(16))))");
             }
             Dialect::MySql => {
                 result = result.replace("DEFAULT gen_random_uuid()", "DEFAULT (UUID())");
@@ -284,14 +262,10 @@ impl Transpiler {
     fn pass_structural(&self, line: &str, _warnings: &mut Vec<String>) -> String {
         let trimmed = line.trim_start();
 
-        // check this before `matches!` to avoid `clippy::collapsible_if`
-        if matches!(
-            self.dialect,
-            Dialect::Postgres | Dialect::Sqlite | Dialect::MySql
-        ) && trimmed.starts_with("CREATE TABLE ")
-            && !trimmed.contains("IF NOT EXISTS")
-        {
-            return line.replacen("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1);
+        if matches!(self.dialect, Dialect::Postgres | Dialect::Sqlite | Dialect::MySql) {
+            if trimmed.starts_with("CREATE TABLE ") && !trimmed.contains("IF NOT EXISTS") {
+                return line.replacen("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1);
+            }
         }
 
         if self.dialect == Dialect::MsSql && trimmed.starts_with("CREATE TABLE IF NOT EXISTS ") {
@@ -303,10 +277,7 @@ impl Transpiler {
             );
         }
 
-        if self.dialect == Dialect::MsSql
-            && trimmed.starts_with("CREATE TABLE ")
-            && !trimmed.contains("IF NOT EXISTS")
-        {
+        if self.dialect == Dialect::MsSql && trimmed.starts_with("CREATE TABLE ") && !trimmed.contains("IF NOT EXISTS") {
             let table_name = extract_table_name(trimmed);
             return format!(
                 "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = '{}' AND xtype = 'U')\n{}",
@@ -338,8 +309,10 @@ impl Transpiler {
             );
         }
 
-        if self.dialect == Dialect::Oracle && trimmed.contains(" ADD COLUMN ") {
-            return line.replace(" ADD COLUMN ", " ADD ");
+        if self.dialect == Dialect::Oracle {
+            if trimmed.contains(" ADD COLUMN ") {
+                return line.replace(" ADD COLUMN ", " ADD ");
+            }
         }
 
         if self.dialect == Dialect::Oracle && trimmed.starts_with("CREATE INDEX IF NOT EXISTS ") {
@@ -507,9 +480,7 @@ mod tests {
         let sql = "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);";
         let output = Transpiler::new(Dialect::MsSql).transpile(sql).unwrap();
         assert!(output.sql.contains("IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'users') AND name = N'idx_users_email')"));
-        assert!(output
-            .sql
-            .contains("CREATE INDEX idx_users_email ON users(email)"));
+        assert!(output.sql.contains("CREATE INDEX idx_users_email ON users(email)"));
     }
 
     #[test]
@@ -517,9 +488,7 @@ mod tests {
         let sql = "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);";
         let output = Transpiler::new(Dialect::Oracle).transpile(sql).unwrap();
         assert!(!output.sql.contains("IF NOT EXISTS"));
-        assert!(output
-            .sql
-            .contains("CREATE INDEX idx_users_email ON users(email)"));
+        assert!(output.sql.contains("CREATE INDEX idx_users_email ON users(email)"));
     }
 
     #[test]
@@ -589,9 +558,7 @@ SELECT pg_only_function();
         let output = Transpiler::new(Dialect::MsSql).transpile(sql).unwrap();
         assert!(output.sql.contains("UNIQUEIDENTIFIER"));
         assert!(output.sql.contains("NVARCHAR(MAX)"));
-        assert!(output
-            .sql
-            .contains("IF NOT EXISTS (SELECT * FROM sysobjects"));
+        assert!(output.sql.contains("IF NOT EXISTS (SELECT * FROM sysobjects"));
         assert!(output.sql.contains("DEFAULT NEWID()"));
     }
 
@@ -664,9 +631,7 @@ SELECT sqlite_function();
         let sql = "ALTER TABLE users ADD COLUMN locked_at TIMESTAMPTZ;";
         let output = Transpiler::new(Dialect::MsSql).transpile(sql).unwrap();
         assert!(output.sql.contains("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('users') AND name = 'locked_at')"));
-        assert!(output
-            .sql
-            .contains("ALTER TABLE users ADD locked_at DATETIME2"));
+        assert!(output.sql.contains("ALTER TABLE users ADD locked_at DATETIME2"));
     }
 
     #[test]

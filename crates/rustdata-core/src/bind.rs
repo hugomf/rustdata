@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::dialect::SqlDialect;
 
-pub type QueryBuilder<'q, DB> = sqlx::query::Query<'q, DB, <DB as sqlx::Database>::Arguments<'q>>;
+pub type QueryBuilder<'q, DB> =
+    sqlx::query::Query<'q, DB, <DB as sqlx::Database>::Arguments<'q>>;
 
 pub trait BindAdapter<DB: sqlx::Database>: Sized + Send + Sync + 'static {
     fn dialect() -> SqlDialect;
@@ -29,7 +30,10 @@ pub trait BindAdapter<DB: sqlx::Database>: Sized + Send + Sync + 'static {
         q: QueryBuilder<'q, DB>,
         v: Option<&'q T>,
     ) -> QueryBuilder<'q, DB>;
-    fn bind_json_value<'q>(q: QueryBuilder<'q, DB>, v: serde_json::Value) -> QueryBuilder<'q, DB>;
+    fn bind_json_value<'q>(
+        q: QueryBuilder<'q, DB>,
+        v: serde_json::Value,
+    ) -> QueryBuilder<'q, DB>;
     fn bind_float<'q>(q: QueryBuilder<'q, DB>, v: f64) -> QueryBuilder<'q, DB>;
     fn bind_opt_float<'q>(q: QueryBuilder<'q, DB>, v: Option<f64>) -> QueryBuilder<'q, DB>;
     fn bind_bytes<'q>(q: QueryBuilder<'q, DB>, v: &'q [u8]) -> QueryBuilder<'q, DB>;

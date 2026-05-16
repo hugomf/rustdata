@@ -10,10 +10,7 @@ pub trait ToSqlValue {
 
     /// The `SqlTypeId` used when `Option<Self>` is `None`.
     /// Override this in every concrete impl so nullable bindings are correct.
-    fn null_type() -> SqlTypeId
-    where
-        Self: Sized,
-    {
+    fn null_type() -> SqlTypeId where Self: Sized {
         SqlTypeId::Text
     }
 }
@@ -30,56 +27,21 @@ impl<E> Specification<E> for Predicate {
 
 #[derive(Debug, Clone)]
 pub enum Predicate {
-    Eq {
-        column: String,
-        value: SqlValue,
-    },
-    Ne {
-        column: String,
-        value: SqlValue,
-    },
-    In {
-        column: String,
-        values: Vec<SqlValue>,
-    },
-    Between {
-        column: String,
-        low: SqlValue,
-        high: SqlValue,
-    },
-    Like {
-        column: String,
-        pattern: String,
-    },
-    Gt {
-        column: String,
-        value: SqlValue,
-    },
-    Lt {
-        column: String,
-        value: SqlValue,
-    },
-    Gte {
-        column: String,
-        value: SqlValue,
-    },
-    Lte {
-        column: String,
-        value: SqlValue,
-    },
-    IsNull {
-        column: String,
-    },
-    IsNotNull {
-        column: String,
-    },
+    Eq { column: String, value: SqlValue },
+    Ne { column: String, value: SqlValue },
+    In { column: String, values: Vec<SqlValue> },
+    Between { column: String, low: SqlValue, high: SqlValue },
+    Like { column: String, pattern: String },
+    Gt { column: String, value: SqlValue },
+    Lt { column: String, value: SqlValue },
+    Gte { column: String, value: SqlValue },
+    Lte { column: String, value: SqlValue },
+    IsNull { column: String },
+    IsNotNull { column: String },
     Not(Box<Predicate>),
     And(Vec<Predicate>),
     Or(Vec<Predicate>),
-    Raw {
-        sql: &'static str,
-        params: Vec<SqlValue>,
-    },
+    Raw { sql: &'static str, params: Vec<SqlValue> },
     None,
 }
 
@@ -102,102 +64,58 @@ pub enum SqlValue {
 // ── ToSqlValue impls ─────────────────────────────────────────────────────────
 
 impl ToSqlValue for String {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Str(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Varchar
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Str(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Varchar }
 }
 
 impl ToSqlValue for &str {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Str(self.to_string())
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Varchar
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Str(self.to_string()) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Varchar }
 }
 
 impl ToSqlValue for uuid::Uuid {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Uuid(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Uuid
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Uuid(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Uuid }
 }
 
 impl ToSqlValue for i32 {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::I32(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Int
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::I32(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Int }
 }
 
 impl ToSqlValue for i64 {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::I64(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::BigInt
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::I64(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::BigInt }
 }
 
 impl ToSqlValue for f32 {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::F32(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Float
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::F32(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Float }
 }
 
 impl ToSqlValue for f64 {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::F64(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Float
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::F64(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Float }
 }
 
 impl ToSqlValue for bool {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Bool(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Boolean
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Bool(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Boolean }
 }
 
 impl ToSqlValue for chrono::DateTime<chrono::Utc> {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::DateTime(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::TimestampTz
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::DateTime(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::TimestampTz }
 }
 
 impl ToSqlValue for serde_json::Value {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Json(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Jsonb
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Json(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Jsonb }
 }
 
 impl ToSqlValue for Vec<u8> {
-    fn to_sql_value(self) -> SqlValue {
-        SqlValue::Bytes(self)
-    }
-    fn null_type() -> SqlTypeId {
-        SqlTypeId::Bytes
-    }
+    fn to_sql_value(self) -> SqlValue { SqlValue::Bytes(self) }
+    fn null_type() -> SqlTypeId { SqlTypeId::Bytes }
 }
 
 /// `Option<T>` uses `T::null_type()` so the database receives a correctly-typed
@@ -247,19 +165,11 @@ impl Predicate {
             Predicate::None => (String::new(), Vec::new(), param_offset),
             Predicate::Eq { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} = {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} = {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::Ne { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} <> {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} <> {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::IsNull { column } => {
                 (format!("{} IS NULL", column), Vec::new(), param_offset)
@@ -269,35 +179,19 @@ impl Predicate {
             }
             Predicate::Gt { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} > {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} > {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::Lt { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} < {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} < {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::Gte { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} >= {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} >= {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::Lte { column, value } => {
                 let ph = dialect.ph(param_offset);
-                (
-                    format!("{} <= {}", column, ph),
-                    vec![value.clone()],
-                    param_offset + 1,
-                )
+                (format!("{} <= {}", column, ph), vec![value.clone()], param_offset + 1)
             }
             Predicate::Like { column, pattern } => {
                 let ph = dialect.ph(param_offset);

@@ -75,10 +75,16 @@ pub trait EntityDescriptor: Send + Sync + 'static {
         DB: sqlx::Database,
         B: BindAdapter<DB>;
 
-    fn bind_id<'q, DB, B>(query: QueryBuilder<'q, DB>, id: &'q Self::Id) -> QueryBuilder<'q, DB>
+    fn bind_id<'q, DB, B>(
+        query: QueryBuilder<'q, DB>,
+        id: &'q Self::Id,
+    ) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>;
 
-    fn from_row<E: RowExtractor>(row: &E::Row, ext: &E) -> Result<Self::Entity, RepositoryError>;
+    fn from_row<E: RowExtractor>(
+        row: &E::Row,
+        ext: &E,
+    ) -> Result<Self::Entity, RepositoryError>;
 }

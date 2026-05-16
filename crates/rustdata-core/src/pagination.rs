@@ -12,7 +12,7 @@ pub struct Page<E> {
 impl<E> Page<E> {
     pub fn new(content: Vec<E>, total_elements: u64, pageable: &Pageable) -> Self {
         let size = pageable.size.max(1);
-        let total_pages = total_elements.div_ceil(size);
+        let total_pages = (total_elements + size - 1) / size;
         Self {
             content,
             total_elements,
@@ -42,6 +42,15 @@ impl<E> Page<E> {
         !self.is_last()
     }
 
+    pub fn has_previous(&self) -> bool {
+        self.page > 0
+    }
+
+    /// Iterate over the page content by reference.
+    pub fn iter(&self) -> std::slice::Iter<'_, E> {
+        self.content.iter()
+    }
+
     pub fn map<T, F: FnMut(E) -> T>(self, f: F) -> Page<T> {
         Page {
             content: self.content.into_iter().map(f).collect(),
@@ -50,6 +59,24 @@ impl<E> Page<E> {
             page: self.page,
             size: self.size,
         }
+    }
+}
+
+impl<E> IntoIterator for Page<E> {
+    type Item = E;
+    type IntoIter = std::vec::IntoIter<E>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.content.into_iter()
+    }
+}
+
+impl<'a, E> IntoIterator for &'a Page<E> {
+    type Item = &'a E;
+    type IntoIter = std::slice::Iter<'a, E>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.content.iter()
     }
 }
 
@@ -62,6 +89,12 @@ pub struct Pageable {
 }
 
 impl Pageable {
+    /// Alias for `Pageable::of` — create a pageable for the given zero-based
+    /// page index and page size.
+    pub fn new(page: u64, size: u64) -> Self {
+        Self::of(page, size)
+    }
+
     pub fn of(page: u64, size: u64) -> Self {
         Self {
             page,
@@ -181,7 +214,11 @@ impl Direction {
 pub struct Filter {
     pub column: String,
     pub operator: FilterOperator,
+    /// Primary value (used by all operators except `In`).
     pub value: SqlValue,
+    /// Additional values for `IN` queries. When `operator` is `FilterOperator::In`,
+    /// the full set is `[value] + extra_values`. Use `Filter::in_values` to construct.
+    pub extra_values: Vec<SqlValue>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,56 +239,49 @@ pub enum FilterOperator {
 }
 
 impl Filter {
-    pub fn to_sql(
-        &self,
-        dialect: crate::dialect::SqlDialect,
-        param_offset: usize,
-    ) -> (String, Vec<SqlValue>, usize) {
+    /// Construct a simple single-value filter.
+    pub fn new(column: impl Into<String>, operator: FilterOperator, value: SqlValue) -> Self {
+        Self { column: column.into(), operator, value, extra_values: Vec::new() }
+    }
+
+    /// Construct an `IN (v1, v2, …)` filter from a non-empty vec.
+    ///
+    /// Panics in debug mode if `values` is empty (an empty `IN` list is
+    /// always false and almost certainly a caller bug).
+    pub fn in_values(column: impl Into<String>, values: Vec<SqlValue>) -> Self {
+        debug_assert!(!values.is_empty(), "Filter::in_values called with empty list");
+        let mut iter = values.into_iter();
+        let first = iter.next().unwrap_or(SqlValue::Null(crate::column::SqlTypeId::Text));
+        Self {
+            column: column.into(),
+            operator: FilterOperator::In,
+            value: first,
+            extra_values: iter.collect(),
+        }
+    }
+
+    pub fn to_sql(&self, dialect: crate::dialect::SqlDialect, param_offset: usize) -> (String, Vec<SqlValue>, usize) {
         let (sql, params) = match self.operator {
-            FilterOperator::Eq => (
-                format!("{} = {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Ne => (
-                format!("{} != {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Lt => (
-                format!("{} < {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Lte => (
-                format!("{} <= {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Gt => (
-                format!("{} > {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Gte => (
-                format!("{} >= {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Like => (
-                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
-            FilterOperator::Contains => (
-                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
-                vec![SqlValue::Str(format!("%{}%", self.value_to_string()))],
-            ),
-            FilterOperator::StartsWith => (
-                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
-                vec![SqlValue::Str(format!("{}%", self.value_to_string()))],
-            ),
-            FilterOperator::EndsWith => (
-                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
-                vec![SqlValue::Str(format!("%{}", self.value_to_string()))],
-            ),
-            FilterOperator::In => (
-                format!("{} IN ({})", self.column, dialect.ph(param_offset)),
-                vec![self.value.clone()],
-            ),
+            FilterOperator::Eq => (format!("{} = {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Ne => (format!("{} != {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Lt => (format!("{} < {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Lte => (format!("{} <= {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Gt => (format!("{} > {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Gte => (format!("{} >= {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Like => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Contains => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("%{}%", self.value_to_string()))]),
+            FilterOperator::StartsWith => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("{}%", self.value_to_string()))]),
+            FilterOperator::EndsWith => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("%{}", self.value_to_string()))]),
+            FilterOperator::In => {
+                // Collect all values: the primary + extras
+                let all_values: Vec<SqlValue> = std::iter::once(self.value.clone())
+                    .chain(self.extra_values.iter().cloned())
+                    .collect();
+                let placeholders: Vec<String> = (0..all_values.len())
+                    .map(|i| dialect.ph(param_offset + i))
+                    .collect();
+                (format!("{} IN ({})", self.column, placeholders.join(", ")), all_values)
+            }
             FilterOperator::IsNull => (format!("{} IS NULL", self.column), vec![]),
             FilterOperator::IsNotNull => (format!("{} IS NOT NULL", self.column), vec![]),
         };

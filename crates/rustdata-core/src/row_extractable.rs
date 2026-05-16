@@ -1,5 +1,5 @@
 use crate::{
-    backend::{AdOf, Backend, DbBound, DbOf, ExOf},
+    backend::{Backend, DbBound, DbOf, AdOf, ExOf},
     bind::BindAdapter,
     column::SqlTypeId,
     descriptor::RowExtractor,
@@ -31,11 +31,7 @@ pub struct QueryRepository<BA: Backend, R: RowExtractable> {
 
 impl<BA: Backend, R: RowExtractable> QueryRepository<BA, R> {
     pub fn new(pool: sqlx::Pool<DbOf<BA>>) -> Self {
-        Self {
-            pool,
-            _ba: PhantomData,
-            _r: PhantomData,
-        }
+        Self { pool, _ba: PhantomData, _r: PhantomData }
     }
 
     pub fn dialect(&self) -> SqlDialect {
@@ -66,10 +62,7 @@ where
     ) -> Result<Option<R>, RepositoryError> {
         let rendered = self.dialect().render(sql);
         let query = bind_values::<BA>(sqlx::query::<DbOf<BA>>(&rendered), params);
-        let row = query
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let row = query.fetch_optional(&self.pool).await.map_err(RepositoryError::from)?;
         match row {
             Some(r) => {
                 let ext = <ExOf<BA> as Default>::default();
@@ -87,10 +80,7 @@ where
     ) -> Result<Vec<R>, RepositoryError> {
         let rendered = self.dialect().render(sql);
         let query = bind_values::<BA>(sqlx::query::<DbOf<BA>>(&rendered), params);
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(RepositoryError::from)?;
+        let rows = query.fetch_all(&self.pool).await.map_err(RepositoryError::from)?;
         let ext = <ExOf<BA> as Default>::default();
         rows.iter().map(|r| R::extract_row(r, &ext)).collect()
     }
@@ -131,11 +121,7 @@ where
         table: &str,
         id: SqlValue,
     ) -> Result<Option<R>, RepositoryError> {
-        let sql = format!(
-            "SELECT * FROM {} WHERE id = {}",
-            table,
-            self.dialect().ph(1)
-        );
+        let sql = format!("SELECT * FROM {} WHERE id = {}", table, self.dialect().ph(1));
         self.find_one_by_sql(&sql, &[id]).await
     }
 
@@ -169,6 +155,21 @@ where
     }
 
     /// `SELECT * FROM table WHERE <predicate>` → all rows.
+    ///
+    /// # Soft-delete notice
+    ///
+    /// `QueryRepository` is schema-agnostic — it has no knowledge of
+    /// `SOFT_DELETE_COL` and will therefore return soft-deleted rows.
+    /// If your table uses soft-delete, add an explicit `IsNull` predicate:
+    ///
+    /// ```ignore
+    /// use rustdata_core::specification::Predicate;
+    /// let active = Predicate::And(vec![
+    ///     your_predicate,
+    ///     Predicate::IsNull { column: "deleted_at".into() },
+    /// ]);
+    /// repo.find_all_pred("users", &active).await?
+    /// ```
     pub async fn find_all_pred(
         &self,
         table: &str,
@@ -184,6 +185,10 @@ where
     }
 
     /// `SELECT * FROM table WHERE <predicate>` → single row.
+    ///
+    /// # Soft-delete notice
+    ///
+    /// See [`find_all_pred`](Self::find_all_pred) for the soft-delete caveat.
     pub async fn find_one_pred(
         &self,
         table: &str,

@@ -1,6 +1,6 @@
 use crate::{
-    error::RepositoryError,
     specification::{Predicate, SqlValue},
+    error::RepositoryError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,13 +51,26 @@ impl QueryMethodParser {
             conditions.push(Self::parse_field(part));
         }
 
-        Ok(ParsedQuery {
-            conditions,
-            conjunction,
-        })
+        Ok(ParsedQuery { conditions, conjunction })
     }
 
     fn parse_field(field_expr: &str) -> (String, String) {
+        // Check zero-param suffixes first (they don't consume a value slot)
+        if let Some(stem) = field_expr.strip_suffix("_is_not_null") {
+            if !stem.is_empty() {
+                return (stem.to_string(), "is_not_null".to_string());
+            }
+        }
+        if let Some(stem) = field_expr.strip_suffix("_is_null") {
+            if !stem.is_empty() {
+                return (stem.to_string(), "is_null".to_string());
+            }
+        }
+        if let Some(stem) = field_expr.strip_suffix("_in") {
+            if !stem.is_empty() {
+                return (stem.to_string(), "in".to_string());
+            }
+        }
         for &(suffix, op) in KNOWN_OPERATORS.iter() {
             if let Some(stem) = field_expr.strip_suffix(suffix) {
                 if !stem.is_empty() {
@@ -68,37 +81,48 @@ impl QueryMethodParser {
         (field_expr.to_string(), "eq".to_string())
     }
 
-    pub fn build_predicate(
-        parsed: ParsedQuery,
-        values: Vec<SqlValue>,
-    ) -> Result<Predicate, RepositoryError> {
-        if parsed.conditions.len() != values.len() {
-            return Err(RepositoryError::Database(
-                "Number of conditions does not match number of values".to_string(),
-            ));
+    pub fn build_predicate(parsed: ParsedQuery, values: Vec<SqlValue>) -> Result<Predicate, RepositoryError> {
+        // Count how many value slots are needed (is_null / is_not_null need 0)
+        let value_consuming: Vec<bool> = parsed.conditions.iter()
+            .map(|(_, op)| op != "is_null" && op != "is_not_null")
+            .collect();
+        let expected_values = value_consuming.iter().filter(|&&v| v).count();
+        if expected_values != values.len() {
+            return Err(RepositoryError::Database(format!(
+                "Expected {} value(s) for query, got {}",
+                expected_values, values.len()
+            )));
         }
 
         let mut predicates = Vec::new();
-        for ((column, operator), value) in parsed.conditions.into_iter().zip(values) {
+        let mut value_iter = values.into_iter();
+        for ((column, operator), _needs_value) in parsed.conditions.into_iter().zip(value_consuming) {
             let predicate = match operator.as_str() {
-                "eq" => Predicate::Eq { column, value },
-                "ne" => Predicate::Ne { column, value },
-                "lt" => Predicate::Lt { column, value },
-                "lte" => Predicate::Lte { column, value },
-                "gt" => Predicate::Gt { column, value },
-                "gte" => Predicate::Gte { column, value },
+                "is_null" => Predicate::IsNull { column },
+                "is_not_null" => Predicate::IsNotNull { column },
+                "in" => {
+                    // For the dynamic API, `in` takes a single SqlValue::Json(array)
+                    // or the caller passes multiple values wrapped in a Vec via In.
+                    // We take one value and wrap it in a single-element In for now;
+                    // callers that need multi-value IN should use find_by_X_in directly.
+                    let value = value_iter.next().unwrap();
+                    Predicate::In { column, values: vec![value] }
+                }
+                "eq" => Predicate::Eq { column, value: value_iter.next().unwrap() },
+                "ne" => Predicate::Ne { column, value: value_iter.next().unwrap() },
+                "lt" => Predicate::Lt { column, value: value_iter.next().unwrap() },
+                "lte" => Predicate::Lte { column, value: value_iter.next().unwrap() },
+                "gt" => Predicate::Gt { column, value: value_iter.next().unwrap() },
+                "gte" => Predicate::Gte { column, value: value_iter.next().unwrap() },
                 "like" => {
+                    let value = value_iter.next().unwrap();
                     let pattern = match value {
                         SqlValue::Str(s) => s,
-                        _ => {
-                            return Err(RepositoryError::Database(
-                                "LIKE requires string value".to_string(),
-                            ))
-                        }
+                        _ => return Err(RepositoryError::Database("LIKE requires string value".to_string())),
                     };
                     Predicate::Like { column, pattern }
                 }
-                _ => Predicate::Eq { column, value },
+                _ => Predicate::Eq { column, value: value_iter.next().unwrap() },
             };
             predicates.push(predicate);
         }
