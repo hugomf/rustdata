@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Rust
+/target
+**/*.rs.bk
+
+# Cargo
+cargo.lock
+cargo-registry
+cargo-index
+
+# Rustup
+rust-toolchain*
+rustfmt.toml
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.a
+*.lib
+*.so
+*.dylib
+*.exe
+*.exe~
+*.dll
+
+# Testing
+/coverage/

@@ -1,0 +1,25 @@
+[package]
+name = "rustdata-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Spring Data-style generic CRUD repository for sqlx with multi-dialect support"
+
+[dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "chrono", "uuid"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+thiserror = { version = "2" }
+rustdata-macros = { path = "../rustdata-macros" }
+sha2 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+walkdir = { version = "2", optional = true }
+
+[features]
+default = ["postgres"]
+postgres = ["sqlx/postgres"]
+sqlite = ["sqlx/sqlite"]
+mysql = ["sqlx/mysql"]
+migration = ["dep:sha2", "dep:hex", "dep:walkdir"]

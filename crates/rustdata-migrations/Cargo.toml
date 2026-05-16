@@ -1,0 +1,9 @@
+[package]
+name = "rustdata-migrations"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Generic SQL transpilation engine — Dialect enum, type mappings, and multi-pass dialect transpiler"
+
+[lib]
+name = "rustdata_migrations"
