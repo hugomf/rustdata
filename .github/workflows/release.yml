@@ -140,28 +140,21 @@ jobs:
           VER="${{ steps.version.outputs.next }}"
           DATE="$(date +%Y-%m-%d)"
           NEXT_TAG="${{ steps.version.outputs.next_short }}"
-          CHANGELOG_BLOCK="$(cat <<'BLOCK'
-## [TAG_VERSION] - DATE
+          SECTION="/tmp/new_changelog_section.md"
 
-### Added
+          printf '## [%s] - %s\n\n### Added\n\n### Changed\n\n### Fixed\n\n' \
+            "$VER" "$DATE" > "$SECTION"
 
-### Changed
-
-### Fixed
-
-BLOCK
-)"
-
-# Inject the new section at the top of the file (below any existing preamble header
-# such as "# CHANGELOG"), effectively preserving reverse-chronological order.
+          # inject at top (below preamble header "# CHANGELOG" if present) ──
           if grep -q '^# CHANGELOG' CHANGELOG.md 2>/dev/null; then
             tmp=$(mktemp)
-            { head -n $(grep -n '^# CHANGELOG' CHANGELOG.md | head -1 | cut -d: -f1) CHANGELOG.md; echo ""; echo "$CHANGELOG_BLOCK"; tail -n +$(( $(grep -n '^# CHANGELOG' CHANGELOG.md | head -1 | cut -d: -f1) + 1 )) CHANGELOG.md; } > "$tmp"
+            pivot=$(grep -n '^# CHANGELOG' CHANGELOG.md | head -1 | cut -d: -f1)
+            { head -n "$pivot" CHANGELOG.md; echo ""; cat "$SECTION"; tail -n +$((pivot + 1)) CHANGELOG.md; } > "$tmp"
+            mv "$tmp" CHANGELOG.md
           else
-            { echo "$CHANGELOG_BLOCK"; echo ""; cat CHANGELOG.md; } > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
+            { echo ""; cat "$SECTION"; } >> CHANGELOG.md
           fi
-          sed -i '' "s/TAG_VERSION/$VER/g; s/DATE/$DATE/g" CHANGELOG.md
-          echo "next_section=$(grep -A 5 "^## \[$VER\]" CHANGELOG.md | head -6)" >> "$GITHUB_OUTPUT"
+          echo "next_section=$(grep -A 5 '^## \['"'"'[$VER]'"'"' CHANGELOG.md | head -6)" >> "$GITHUB_OUTPUT"
 
       - name: Show CHANGELOG diff (review before tagging)
         run: |
@@ -173,7 +166,9 @@ BLOCK
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Commit version bump + changelog
-        run: git commit -am "release: v${{ steps.version.outputs.next }}" || true
+        run: |
+          TAG="${{ steps.version.outputs.next_short }}"
+          git commit -am "release: v$TAG" || true
 
       - name: Sign and push version tag
         env:
@@ -207,8 +202,8 @@ BLOCK
           body: |
             ## What changed
 
-${{ steps.changelog.outputs.next_section}}
+            ${{ steps.changelog.outputs.next_section}}
 
-See [CHANGELOG.md](https://github.com/hugomf/rustdata/blob/master/CHANGELOG.md) for the full history.
+            See [CHANGELOG.md](https://github.com/hugomf/rustdata/blob/master/CHANGELOG.md) for the full history.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -106,38 +106,35 @@ jobs:
           restore-keys: |
             rust-${{ matrix.rust }}-
 
-      - name: Read current version + bump
-        id: version
+      - name: Bump version in all member crates
+        id: bump-version
         run: |
-          CURRENT=$$(grep '^version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          NEXT=$$(python3 - <<PY "$$CURRENT" "${{ matrix.bump }}"
-import sys
-major, minor, patch = map(int, sys.argv[1].split("."))
-bump = sys.argv[2]
-if   bump == "major": major += 1; minor = 0; patch = 0
-elif bump == "minor":          minor += 1; patch = 0
-elif bump == "patch":                         patch += 1
-print(f"{major}.{minor}.{patch}")
-PY
-)
-          echo "current=$$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "next=$$NEXT"      >> "$GITHUB_OUTPUT"
-          echo "next_short=v$$NEXT" >> "$GITHUB_OUTPUT"
+          CURRENT="$(grep '^version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          bump="${{ matrix.bump }}"
+          NEXT="$(bash scripts/bump_version.sh "$CURRENT" "$bump")"
+          echo "NEXT=$NEXT"  >> "$GITHUB_SUMMARY"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT"      >> "$GITHUB_OUTPUT"
+          echo "next_short=v$NEXT" >> "$GITHUB_OUTPUT"
 
-      - name: Bump version in all member Cargo.toml files
+
+      - name: Set workspace version to $$NEXT
+        run: cargo set-version --workspace "${{ steps.bump-version.outputs.next }}"
+
+      - name: Confirm versions
         run: |
-          VER="${{ steps.version.outputs.next }}"
-          for pkg in rustdata-macros rustdata-migrations rustdata-core; do
-            sed -i '' "s/^version = \".*\"/version = \"$$VER\"/" crates/$$pkg/Cargo.toml
-            grep '^version = ' crates/$$pkg/Cargo.toml | head -1
-          done
+          cargo metadata --format-version=1 --no-deps \
+            | python3 -c "import sys,json;\
+              print(', '.join(f\"{p['name']}={p['version']}\" \
+                for p in json.load(sys.stdin)['packages'] if 'rustdata' in p['name']))"
+
 
       - name: Update CHANGELOG.md
         run: |
-          VER="${{ steps.version.outputs.next }}"
-          DATE="$$(date +%Y-%m-%d)"
+          TITLE="${{ steps.bump-version.outputs.next_short }}"
+          DATE="$(date +%Y-%m-%d)"
           {
-            printf "## [%s] - %s\n\n" "$$VER" "$$DATE"
+            printf "## [%s] - %s\n\n" "$TITLE" "$DATE"
             printf "### Added\n### Changed\n### Fixed\n\n"
             cat CHANGELOG.md
           } > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
@@ -149,25 +146,38 @@ PY
 
       - name: Commit + sign-tag
         run: |
-          TAG="${{ steps.version.outputs.next_short }}"
+          TAG="${{ steps.bump-version.outputs.next_short }}"
           git add -A
-          git commit -m "release: $$TAG" --allow-empty
-          git tag -s "$$TAG" -m "Release $$TAG"
+          git commit -m "release: $TAG" --allow-empty
+          git tag -s "$TAG" -m "Release $TAG"
 
       - name: Push commit + signed tag to all remotes
         run: |
-          TAG="${{ steps.version.outputs.next_short }}"
+          TAG="${{ steps.bump-version.outputs.next_short }}"
           git push origin --follow-tags
           git push rustdata --follow-tags
 
+      - name: cargo publish — rustdata-core
+        env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           cargo publish -p rustdata-macros
           cargo publish -p rustdata-migrations
           cargo publish -p rustdata-core
 
-      - name: Post to Gitea webhook (optional: mirrors PR/issue)
-        # Gitea mirror hook is optional and only needed if this repo
-        # mirrors pushes back to Gitea; remove if Gitea is primary.
-        run: echo "Skipping Gitea mirror (Gitea is primary origin)."
-        if: false
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Optional step — Gitea mirror hook
+  #  If Gitea is primary, keep this step and adjust the URL below.
+  #  The step is guarded by `if: false` so it never fires during manual dispatch.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  post-to-gitea:
+    name: Post to Gitea mirror hook (optional)
+    needs: release
+    if: |
+      github.repository == 'hugomf/rustdata'   # guard: runs on push only, not dispatch
+    runs-on: ubuntu-latest
+    steps:
+      - name: No-op (Gitea is primary origin; mirror disabled)
+        run: echo "Gitea mirror hook not configured. Uncomment and wire URL to enable."
+
