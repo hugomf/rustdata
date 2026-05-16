@@ -77,9 +77,9 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
         .collect();
 
     // Separate vecs: trait signatures vs impl bodies
-    let mut crud_sigs    = Vec::<proc_macro2::TokenStream>::new();
+    let mut crud_sigs = Vec::<proc_macro2::TokenStream>::new();
     let mut crud_methods = Vec::<proc_macro2::TokenStream>::new();
-    let mut qrepo_sigs    = Vec::<proc_macro2::TokenStream>::new();
+    let mut qrepo_sigs = Vec::<proc_macro2::TokenStream>::new();
     let mut qrepo_methods = Vec::<proc_macro2::TokenStream>::new();
 
     // ── Single-field comparison methods ──────────────────────────────────
@@ -87,18 +87,24 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
         let col_name = &entry.col;
 
         let cmp_ops: &[(&str, &str)] = &[
-            ("",     "Eq"),
-            ("_ne",  "Ne"),
-            ("_gt",  "Gt"),
+            ("", "Eq"),
+            ("_ne", "Ne"),
+            ("_gt", "Gt"),
             ("_gte", "Gte"),
-            ("_lt",  "Lt"),
+            ("_lt", "Lt"),
             ("_lte", "Lte"),
         ];
 
         for (suffix, variant_str) in cmp_ops {
-            let variant  = Ident::new(variant_str, Span::call_site());
-            let find_all = Ident::new(&format!("find_by_{}{}", entry.rust, suffix), Span::call_site());
-            let find_one = Ident::new(&format!("find_one_by_{}{}", entry.rust, suffix), Span::call_site());
+            let variant = Ident::new(variant_str, Span::call_site());
+            let find_all = Ident::new(
+                &format!("find_by_{}{}", entry.rust, suffix),
+                Span::call_site(),
+            );
+            let find_one = Ident::new(
+                &format!("find_one_by_{}{}", entry.rust, suffix),
+                Span::call_site(),
+            );
 
             crud_sigs.push(quote! {
                 async fn #find_all<V>(&self, value: V)
@@ -171,8 +177,12 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
 
         // ── LIKE ──
         {
-            let find_all_like = Ident::new(&format!("find_by_{}_like", entry.rust), Span::call_site());
-            let find_one_like = Ident::new(&format!("find_one_by_{}_like", entry.rust), Span::call_site());
+            let find_all_like =
+                Ident::new(&format!("find_by_{}_like", entry.rust), Span::call_site());
+            let find_one_like = Ident::new(
+                &format!("find_one_by_{}_like", entry.rust),
+                Span::call_site(),
+            );
 
             crud_sigs.push(quote! {
                 async fn #find_all_like<V>(&self, pattern: V)
@@ -245,9 +255,18 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
 
         // ── Paged single-field queries ──
         {
-            for (suffix, variant_str) in &[("", "Eq"), ("_gt", "Gt"), ("_lt", "Lt"), ("_gte", "Gte"), ("_lte", "Lte")] {
-                let variant   = Ident::new(variant_str, Span::call_site());
-                let find_paged = Ident::new(&format!("find_by_{}{}_paged", entry.rust, suffix), Span::call_site());
+            for (suffix, variant_str) in &[
+                ("", "Eq"),
+                ("_gt", "Gt"),
+                ("_lt", "Lt"),
+                ("_gte", "Gte"),
+                ("_lte", "Lte"),
+            ] {
+                let variant = Ident::new(variant_str, Span::call_site());
+                let find_paged = Ident::new(
+                    &format!("find_by_{}{}_paged", entry.rust, suffix),
+                    Span::call_site(),
+                );
 
                 crud_sigs.push(quote! {
                     async fn #find_paged<V>(&self, value: V, pageable: &::rustdata_core::pagination::Pageable)
@@ -317,9 +336,18 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
 
         // ── IS NULL / IS NOT NULL ──
         {
-            let find_null     = Ident::new(&format!("find_by_{}_is_null",     entry.rust), Span::call_site());
-            let find_not_null = Ident::new(&format!("find_by_{}_is_not_null", entry.rust), Span::call_site());
-            let exists_null   = Ident::new(&format!("exists_by_{}_is_null",   entry.rust), Span::call_site());
+            let find_null = Ident::new(
+                &format!("find_by_{}_is_null", entry.rust),
+                Span::call_site(),
+            );
+            let find_not_null = Ident::new(
+                &format!("find_by_{}_is_not_null", entry.rust),
+                Span::call_site(),
+            );
+            let exists_null = Ident::new(
+                &format!("exists_by_{}_is_null", entry.rust),
+                Span::call_site(),
+            );
 
             crud_sigs.push(quote! {
                 async fn #find_null(&self)
@@ -379,11 +407,26 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
 
         // ── count_by_* / exists_by_* / delete_by_* ──
         {
-            for (suffix, variant_str) in &[("", "Eq"), ("_gt", "Gt"), ("_lt", "Lt"), ("_gte", "Gte"), ("_lte", "Lte")] {
-                let variant   = Ident::new(variant_str, Span::call_site());
-                let count_fn  = Ident::new(&format!("count_by_{}{}", entry.rust, suffix), Span::call_site());
-                let exists_fn = Ident::new(&format!("exists_by_{}{}", entry.rust, suffix), Span::call_site());
-                let delete_fn = Ident::new(&format!("delete_by_{}{}", entry.rust, suffix), Span::call_site());
+            for (suffix, variant_str) in &[
+                ("", "Eq"),
+                ("_gt", "Gt"),
+                ("_lt", "Lt"),
+                ("_gte", "Gte"),
+                ("_lte", "Lte"),
+            ] {
+                let variant = Ident::new(variant_str, Span::call_site());
+                let count_fn = Ident::new(
+                    &format!("count_by_{}{}", entry.rust, suffix),
+                    Span::call_site(),
+                );
+                let exists_fn = Ident::new(
+                    &format!("exists_by_{}{}", entry.rust, suffix),
+                    Span::call_site(),
+                );
+                let delete_fn = Ident::new(
+                    &format!("delete_by_{}{}", entry.rust, suffix),
+                    Span::call_site(),
+                );
 
                 crud_sigs.push(quote! {
                     async fn #count_fn<V>(&self, value: V)
@@ -442,14 +485,22 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
     // First field always uses Eq; second field uses any comparison operator.
     for i in 0..col_map.len() {
         for j in 0..col_map.len() {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             let ea = &col_map[i];
             let eb = &col_map[j];
             let ca = &ea.col;
             let cb = &eb.col;
 
-            let fn_and = Ident::new(&format!("find_by_{}_and_{}", ea.rust, eb.rust), Span::call_site());
-            let fn_or  = Ident::new(&format!("find_by_{}_or_{}",  ea.rust, eb.rust), Span::call_site());
+            let fn_and = Ident::new(
+                &format!("find_by_{}_and_{}", ea.rust, eb.rust),
+                Span::call_site(),
+            );
+            let fn_or = Ident::new(
+                &format!("find_by_{}_or_{}", ea.rust, eb.rust),
+                Span::call_site(),
+            );
 
             crud_sigs.push(quote! {
                 async fn #fn_and<VA, VB>(&self, va: VA, vb: VB)
@@ -530,11 +581,11 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
             // Compound with comparison operators on the second field:
             // find_by_{a}_and_{b}_gt, find_by_{a}_and_{b}_lt, etc.
             let richer_ops: &[(&str, &str)] = &[
-                ("_gt",  "Gt"),
+                ("_gt", "Gt"),
                 ("_gte", "Gte"),
-                ("_lt",  "Lt"),
+                ("_lt", "Lt"),
                 ("_lte", "Lte"),
-                ("_ne",  "Ne"),
+                ("_ne", "Ne"),
             ];
             for (op_suffix, op_variant_str) in richer_ops {
                 let op_variant = Ident::new(op_variant_str, Span::call_site());
@@ -617,8 +668,14 @@ pub fn query_methods_derive(input: DeriveInput) -> proc_macro::TokenStream {
         #struct_name: ::rustdata_core::row_extractable::RowExtractable,
     };
 
-    let crud_trait_name  = Ident::new(&format!("{}CrudQueryMethods",  struct_name), Span::call_site());
-    let qrepo_trait_name = Ident::new(&format!("{}QueryQueryMethods", struct_name), Span::call_site());
+    let crud_trait_name = Ident::new(
+        &format!("{}CrudQueryMethods", struct_name),
+        Span::call_site(),
+    );
+    let qrepo_trait_name = Ident::new(
+        &format!("{}QueryQueryMethods", struct_name),
+        Span::call_site(),
+    );
 
     let out = quote! {
         // Trait declares signatures; impl provides bodies on the concrete type.

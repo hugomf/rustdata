@@ -1,0 +1,25 @@
+[workspace]
+# Mirror per-crate settings here so cargo-release reads them first.
+#
+# Sections:
+#   [package.<crate-name>]  – overrides and extra fields passed on cargo publish
+#   [git]                  – remote & tag prefix
+#   [changelog]            – file + bump type override
+#   [publish]              – dry-run mode etc.
+#
+# Defaults (apply to all crates not listed):
+[workspace]
+# Dry-run all publish steps by default; set publish.dry_run = false in [publish]
+# before pressing Enter on the real cargo release command.
+
+[git]
+tag_prefix = "v"
+sign_tags = true
+
+[changelog]
+path = "CHANGELOG.md"
+bump_type = "{crate_name}"
+
+[publish]
+# leave dry_run = true unless you are ready to push
+dry_run = true

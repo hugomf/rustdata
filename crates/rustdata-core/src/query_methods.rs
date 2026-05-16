@@ -1,6 +1,6 @@
 use crate::{
-    specification::{Predicate, SqlValue},
     error::RepositoryError,
+    specification::{Predicate, SqlValue},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +51,10 @@ impl QueryMethodParser {
             conditions.push(Self::parse_field(part));
         }
 
-        Ok(ParsedQuery { conditions, conjunction })
+        Ok(ParsedQuery {
+            conditions,
+            conjunction,
+        })
     }
 
     fn parse_field(field_expr: &str) -> (String, String) {
@@ -65,10 +68,13 @@ impl QueryMethodParser {
         (field_expr.to_string(), "eq".to_string())
     }
 
-    pub fn build_predicate(parsed: ParsedQuery, values: Vec<SqlValue>) -> Result<Predicate, RepositoryError> {
+    pub fn build_predicate(
+        parsed: ParsedQuery,
+        values: Vec<SqlValue>,
+    ) -> Result<Predicate, RepositoryError> {
         if parsed.conditions.len() != values.len() {
             return Err(RepositoryError::Database(
-                "Number of conditions does not match number of values".to_string()
+                "Number of conditions does not match number of values".to_string(),
             ));
         }
 
@@ -84,7 +90,11 @@ impl QueryMethodParser {
                 "like" => {
                     let pattern = match value {
                         SqlValue::Str(s) => s,
-                        _ => return Err(RepositoryError::Database("LIKE requires string value".to_string())),
+                        _ => {
+                            return Err(RepositoryError::Database(
+                                "LIKE requires string value".to_string(),
+                            ))
+                        }
                     };
                     Predicate::Like { column, pattern }
                 }

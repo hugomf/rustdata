@@ -12,7 +12,7 @@ pub struct Page<E> {
 impl<E> Page<E> {
     pub fn new(content: Vec<E>, total_elements: u64, pageable: &Pageable) -> Self {
         let size = pageable.size.max(1);
-        let total_pages = (total_elements + size - 1) / size;
+        let total_pages = total_elements.div_ceil(size);
         Self {
             content,
             total_elements,
@@ -202,19 +202,56 @@ pub enum FilterOperator {
 }
 
 impl Filter {
-    pub fn to_sql(&self, dialect: crate::dialect::SqlDialect, param_offset: usize) -> (String, Vec<SqlValue>, usize) {
+    pub fn to_sql(
+        &self,
+        dialect: crate::dialect::SqlDialect,
+        param_offset: usize,
+    ) -> (String, Vec<SqlValue>, usize) {
         let (sql, params) = match self.operator {
-            FilterOperator::Eq => (format!("{} = {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Ne => (format!("{} != {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Lt => (format!("{} < {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Lte => (format!("{} <= {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Gt => (format!("{} > {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Gte => (format!("{} >= {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Like => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
-            FilterOperator::Contains => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("%{}%", self.value_to_string()))]),
-            FilterOperator::StartsWith => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("{}%", self.value_to_string()))]),
-            FilterOperator::EndsWith => (format!("{} LIKE {}", self.column, dialect.ph(param_offset)), vec![SqlValue::Str(format!("%{}", self.value_to_string()))]),
-            FilterOperator::In => (format!("{} IN ({})", self.column, dialect.ph(param_offset)), vec![self.value.clone()]),
+            FilterOperator::Eq => (
+                format!("{} = {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Ne => (
+                format!("{} != {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Lt => (
+                format!("{} < {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Lte => (
+                format!("{} <= {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Gt => (
+                format!("{} > {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Gte => (
+                format!("{} >= {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Like => (
+                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
+            FilterOperator::Contains => (
+                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
+                vec![SqlValue::Str(format!("%{}%", self.value_to_string()))],
+            ),
+            FilterOperator::StartsWith => (
+                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
+                vec![SqlValue::Str(format!("{}%", self.value_to_string()))],
+            ),
+            FilterOperator::EndsWith => (
+                format!("{} LIKE {}", self.column, dialect.ph(param_offset)),
+                vec![SqlValue::Str(format!("%{}", self.value_to_string()))],
+            ),
+            FilterOperator::In => (
+                format!("{} IN ({})", self.column, dialect.ph(param_offset)),
+                vec![self.value.clone()],
+            ),
             FilterOperator::IsNull => (format!("{} IS NULL", self.column), vec![]),
             FilterOperator::IsNotNull => (format!("{} IS NOT NULL", self.column), vec![]),
         };

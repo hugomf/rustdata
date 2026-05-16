@@ -9,10 +9,7 @@ use crate::{
 };
 
 pub trait SqlBind: Sized {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        value: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, value: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>;
@@ -27,10 +24,7 @@ pub trait SqlExtract: Sized {
 }
 
 impl SqlBind for String {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -50,10 +44,7 @@ impl SqlExtract for String {
 }
 
 impl SqlBind for Option<String> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -73,10 +64,7 @@ impl SqlExtract for Option<String> {
 }
 
 impl SqlBind for Uuid {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -96,10 +84,7 @@ impl SqlExtract for Uuid {
 }
 
 impl SqlBind for Option<Uuid> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -119,10 +104,7 @@ impl SqlExtract for Option<Uuid> {
 }
 
 impl SqlBind for DateTime<Utc> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -142,10 +124,7 @@ impl SqlExtract for DateTime<Utc> {
 }
 
 impl SqlBind for Option<DateTime<Utc>> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -165,10 +144,7 @@ impl SqlExtract for Option<DateTime<Utc>> {
 }
 
 impl SqlBind for bool {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -188,10 +164,7 @@ impl SqlExtract for bool {
 }
 
 impl SqlBind for i64 {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -211,10 +184,7 @@ impl SqlExtract for i64 {
 }
 
 impl SqlBind for Option<i64> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -234,10 +204,7 @@ impl SqlExtract for Option<i64> {
 }
 
 impl SqlBind for i32 {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -257,10 +224,7 @@ impl SqlExtract for i32 {
 }
 
 impl SqlBind for u32 {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -280,10 +244,7 @@ impl SqlExtract for u32 {
 }
 
 impl SqlBind for HashSet<String> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -304,10 +265,7 @@ impl SqlExtract for HashSet<String> {
 }
 
 impl SqlBind for Vec<String> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -328,10 +286,7 @@ impl SqlExtract for Vec<String> {
 }
 
 impl SqlBind for f32 {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -351,10 +306,7 @@ impl SqlExtract for f32 {
 }
 
 impl SqlBind for Option<f32> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -374,10 +326,7 @@ impl SqlExtract for Option<f32> {
 }
 
 impl SqlBind for f64 {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -397,10 +346,7 @@ impl SqlExtract for f64 {
 }
 
 impl SqlBind for Option<f64> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -420,10 +366,7 @@ impl SqlExtract for Option<f64> {
 }
 
 impl SqlBind for serde_json::Value {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -443,10 +386,7 @@ impl SqlExtract for serde_json::Value {
 }
 
 impl SqlBind for Option<serde_json::Value> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -469,10 +409,7 @@ impl SqlExtract for Option<serde_json::Value> {
 }
 
 impl SqlBind for Option<HashSet<String>> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -498,10 +435,7 @@ impl SqlExtract for Option<HashSet<String>> {
 }
 
 impl SqlBind for Vec<u8> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,
@@ -521,10 +455,7 @@ impl SqlExtract for Vec<u8> {
 }
 
 impl SqlBind for Option<Vec<u8>> {
-    fn sql_bind<'q, DB, B>(
-        q: QueryBuilder<'q, DB>,
-        v: &'q Self,
-    ) -> QueryBuilder<'q, DB>
+    fn sql_bind<'q, DB, B>(q: QueryBuilder<'q, DB>, v: &'q Self) -> QueryBuilder<'q, DB>
     where
         DB: sqlx::Database,
         B: BindAdapter<DB>,

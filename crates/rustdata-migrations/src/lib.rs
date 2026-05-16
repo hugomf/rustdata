@@ -2,4 +2,4 @@ pub mod dialects;
 pub mod transpiler;
 
 pub use dialects::Dialect;
-pub use transpiler::{Transpiler, TranspileOutput, TranspileError};
+pub use transpiler::{TranspileError, TranspileOutput, Transpiler};
