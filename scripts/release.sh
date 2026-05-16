@@ -165,7 +165,7 @@ make tag
 
 # ── Step 5: cargo publish (all crates in dependency order) ──────────────────
 
-make publish
+make publish-upload
 
 echo ""
 echo "═══ Release v$NEXT_VER complete ═══════════════════════════════════"

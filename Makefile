@@ -19,7 +19,7 @@ CHANGELOG  := CHANGELOG.md
 .PHONY: check
 check:
 	@echo "── fmt ──────────────────────────────────────────────"
-	cargo fmt --all
+	cargo fmt --all -- --check
 	@echo "── clippy ───────────────────────────────────────────"
 	cargo clippy --all-targets --all-features -- -D warnings
 	@echo "── test ─────────────────────────────────────────────"
@@ -84,11 +84,17 @@ tag:
 	git push rustdata --follow-tags && \
 	echo "Tag $$TAG pushed to origin and rustdata."
 
+# ── Publish upload only (no re-run of check/changelog/dry-run/tag) ───────────
+
+.PHONY: publish-upload
+publish-upload:
+	@echo "=== publish-upload: rustdata-macros ==="    && cargo publish -p rustdata-macros
+	@echo "=== publish-upload: rustdata-migrations ===" && cargo publish -p rustdata-migrations
+	@echo "=== publish-upload: rustdata-core ==="      && cargo publish -p rustdata-core
+	@echo "═══ All three crates published to crates.io ════════"
+
 # ── Full publish ──────────────────────────────────────────────────────────────
 
 .PHONY: publish
-publish: check changelog publish-dry-run tag
-	@echo "=== publish: rustdata-macros ==="    && cargo publish -p rustdata-macros
-	@echo "=== publish: rustdata-migrations ===" && cargo publish -p rustdata-migrations
-	@echo "=== publish: rustdata-core ==="      && cargo publish -p rustdata-core
-	@echo "═══ All three crates published to crates.io ════════"
+publish: check changelog publish-dry-run tag publish-upload
+	@echo "═══ Done ════════"

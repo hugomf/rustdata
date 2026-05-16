@@ -55,6 +55,10 @@ where
     // ── Core SQL execution ───────────────────────────────────────────────────
 
     /// Execute a SQL query with params and return a single result, or None.
+    ///
+    /// **Note:** This method does NOT automatically append `LIMIT 1` to the
+    /// SQL — callers are expected to include it in their query (e.g. via
+    /// [`find_one_pred`](Self::find_one_pred)).
     pub async fn find_one_by_sql(
         &self,
         sql: &str,
@@ -121,7 +125,7 @@ where
         table: &str,
         id: SqlValue,
     ) -> Result<Option<R>, RepositoryError> {
-        let sql = format!("SELECT * FROM {} WHERE id = {}", table, self.dialect().ph(1));
+        let sql = format!("SELECT * FROM {} WHERE id = {} LIMIT 1", table, self.dialect().ph(1));
         self.find_one_by_sql(&sql, &[id]).await
     }
 
@@ -196,9 +200,9 @@ where
     ) -> Result<Option<R>, RepositoryError> {
         let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
         let sql = if where_clause.is_empty() {
-            format!("SELECT * FROM {}", table)
+            format!("SELECT * FROM {} LIMIT 1", table)
         } else {
-            format!("SELECT * FROM {} WHERE {}", table, where_clause)
+            format!("SELECT * FROM {} WHERE {} LIMIT 1", table, where_clause)
         };
         self.find_one_by_sql(&sql, &params).await
     }

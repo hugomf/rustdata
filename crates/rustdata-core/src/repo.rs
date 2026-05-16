@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use crate::{
     backend::{Backend, DbBound, DbOf, AdOf, ExOf, RowOf},
     bind::BindAdapter,
-    column::SqlTypeId,
     descriptor::RowExtractor,
     dialect::SqlDialect,
     entity::EntityDescriptor,
@@ -52,7 +51,7 @@ where
     fn find_by_id_sql() -> String {
         let d = BA::dialect();
         format!(
-            "SELECT {} FROM {} WHERE {} = {}",
+            "SELECT {} FROM {} WHERE {} = {} LIMIT 1",
             D::select_cols(), D::TABLE, D::id_column().name, d.ph(1)
         )
     }
@@ -214,7 +213,17 @@ where
     }
 
     pub async fn exists_by_id(&self, id: &D::Id) -> Result<bool, RepositoryError> {
-        Ok(self.find_by_id(id.clone()).await?.is_some())
+        let sql = format!(
+            "SELECT 1 FROM {} WHERE {} = {} LIMIT 1",
+            D::TABLE,
+            D::id_column().name,
+            BA::dialect().ph(1)
+        );
+        let row = D::bind_id::<DbOf<BA>, AdOf<BA>>(sqlx::query(&sql), id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(RepositoryError::from)?;
+        Ok(row.is_some())
     }
 
     pub async fn count(&self) -> Result<u64, RepositoryError> {
@@ -320,7 +329,7 @@ where
     ) -> Result<Option<D::Entity>, RepositoryError> {
         let (where_clause, params, _) = predicate.to_sql(self.dialect(), 1);
         let sort_clause = format!("ORDER BY {}", D::ORDER_BY);
-        let sql = Self::select_sql(&where_clause, &sort_clause);
+        let sql = format!("{} LIMIT 1", Self::select_sql(&where_clause, &sort_clause));
         let query = Self::bind_sql_values(sqlx::query(&sql), &params);
         let row = query.fetch_optional(&self.pool).await.map_err(RepositoryError::from)?;
         match row {
@@ -473,7 +482,7 @@ where
         sql: &str,
         params: &[SqlValue],
     ) -> Result<Option<D::Entity>, RepositoryError> {
-        let rendered = self.dialect().render(sql);
+        let rendered = format!("{} LIMIT 1", self.dialect().render(sql));
         let query = Self::bind_sql_values(sqlx::query(&rendered), params);
         let row = query.fetch_optional(&self.pool).await.map_err(RepositoryError::from)?;
         match row {
@@ -512,37 +521,6 @@ where
         query: crate::bind::QueryBuilder<'q, DbOf<BA>>,
         params: &'q [SqlValue],
     ) -> crate::bind::QueryBuilder<'q, DbOf<BA>> {
-        params.iter().fold(query, |q, v| match v {
-            SqlValue::Uuid(u) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_uuid(q, *u),
-            SqlValue::Str(s) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_str(q, s),
-            SqlValue::I64(i) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_int(q, *i),
-            SqlValue::I32(i) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_int(q, *i as i64),
-            SqlValue::F32(f) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_float(q, *f as f64),
-            SqlValue::F64(f) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_float(q, *f),
-            SqlValue::Bool(b) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_bool(q, *b),
-            SqlValue::DateTime(d) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_datetime(q, *d),
-            SqlValue::Json(v) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_json_value(q, v.clone()),
-            SqlValue::Bytes(b) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_bytes(q, b.as_slice()),
-            SqlValue::OptStr(s) => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_str(
-                q,
-                s.as_ref().map(|s| s.as_str()),
-            ),
-            SqlValue::Null(tid) => match tid {
-                SqlTypeId::Uuid => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_uuid(q, None),
-                SqlTypeId::TimestampTz => {
-                    <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_datetime(q, None)
-                }
-                SqlTypeId::Int | SqlTypeId::BigInt => {
-                    <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_int(q, None)
-                }
-                SqlTypeId::Boolean => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_bool(q, None),
-                SqlTypeId::Float => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_float(q, None),
-                SqlTypeId::Bytes => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_bytes(q, None),
-                SqlTypeId::Json | SqlTypeId::Jsonb => {
-                    <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_json::<serde_json::Value>(q, None)
-                }
-                _ => <AdOf<BA> as BindAdapter<DbOf<BA>>>::bind_opt_str(q, None),
-            },
-        })
+        crate::row_extractable::bind_values::<BA>(query, params)
     }
 }

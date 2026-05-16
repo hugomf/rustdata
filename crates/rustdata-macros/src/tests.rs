@@ -214,8 +214,8 @@ fn sql_type_basic() {
         struct Email(String);
     });
     let output = expand_sql_type(input).to_string();
-    assert!(output.contains("impl :: rustdata :: sql_type :: SqlBind for Email"));
-    assert!(output.contains("impl :: rustdata :: sql_type :: SqlExtract for Email"));
+    assert!(output.contains("impl :: rustdata_core :: sql_type :: SqlBind for Email"));
+    assert!(output.contains("impl :: rustdata_core :: sql_type :: SqlExtract for Email"));
     assert!(output.contains("SqlBind for Option < Email >"));
     assert!(output.contains("SqlExtract for Option < Email >"));
     assert!(output.contains("& v . 0"));
@@ -243,7 +243,7 @@ fn projection_basic() {
         }
     });
     let output = expand_projection(input).to_string();
-    assert!(output.contains("impl :: rustdata :: projection :: Projection for UserName"));
+    assert!(output.contains("impl :: rustdata_core :: projection :: Projection for UserName"));
     assert!(output.contains("type Entity = UserName"));
     assert!(output.contains("ColumnDef :: new (\"id\" ,"));
     assert!(output.contains("ColumnDef :: new (\"name\" ,"));

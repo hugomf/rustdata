@@ -20,7 +20,7 @@ pub fn expand_projection(input: DeriveInput) -> TokenStream {
             let col_name = f.ident.as_ref().unwrap().to_string();
             let sql_type = infer_sql_type(&f.ty);
             quote! {
-                ::rustdata::column::ColumnDef::new(#col_name, #sql_type)
+                ::rustdata_core::column::ColumnDef::new(#col_name, #sql_type)
             }
         })
         .collect();
@@ -33,27 +33,27 @@ pub fn expand_projection(input: DeriveInput) -> TokenStream {
             let col_name = field_ident.to_string();
             let ty = &f.ty;
             quote! {
-                #field_ident: <#ty as ::rustdata::sql_type::SqlExtract>
+                #field_ident: <#ty as ::rustdata_core::sql_type::SqlExtract>
                     ::sql_extract(ext, row, #col_name)?,
             }
         })
         .collect();
 
     let result = quote! {
-        impl ::rustdata::projection::Projection for #name {
+        impl ::rustdata_core::projection::Projection for #name {
             type Entity = #name;
 
-            fn columns() -> &'static [::rustdata::column::ColumnDef] {
+            fn columns() -> &'static [::rustdata_core::column::ColumnDef] {
                 &[
                     #(#field_defs),*
                 ]
             }
 
-            fn from_row<E: ::rustdata::descriptor::RowExtractor>(
+            fn from_row<E: ::rustdata_core::descriptor::RowExtractor>(
                 row: &E::Row,
                 ext: &E,
-            ) -> Result<#name, ::rustdata::error::RepositoryError> {
-                use ::rustdata::sql_type::SqlExtract;
+            ) -> Result<#name, ::rustdata_core::error::RepositoryError> {
+                use ::rustdata_core::sql_type::SqlExtract;
                 Ok(#name {
                     #(#field_extracts)*
                 })
@@ -83,7 +83,7 @@ fn infer_sql_type(ty: &Type) -> TokenStream {
                 }
             }
         }
-        return quote! { ::rustdata::column::SqlTypeId::Text };
+        return quote! { ::rustdata_core::column::SqlTypeId::Text };
     } else {
         ty
     };
@@ -91,32 +91,32 @@ fn infer_sql_type(ty: &Type) -> TokenStream {
     if let Type::Path(type_path) = inner {
         let last_seg = type_path.path.segments.last().map(|s| s.ident.to_string());
         match last_seg.as_deref() {
-            Some("String") => quote! { ::rustdata::column::SqlTypeId::Varchar },
-            Some("Uuid") => quote! { ::rustdata::column::SqlTypeId::Uuid },
-            Some("DateTime") => quote! { ::rustdata::column::SqlTypeId::TimestampTz },
+            Some("String") => quote! { ::rustdata_core::column::SqlTypeId::Varchar },
+            Some("Uuid") => quote! { ::rustdata_core::column::SqlTypeId::Uuid },
+            Some("DateTime") => quote! { ::rustdata_core::column::SqlTypeId::TimestampTz },
             Some("bool") | Some("Bool") => {
-                quote! { ::rustdata::column::SqlTypeId::Boolean }
+                quote! { ::rustdata_core::column::SqlTypeId::Boolean }
             }
             Some("i64") | Some("Int64") => {
-                quote! { ::rustdata::column::SqlTypeId::BigInt }
+                quote! { ::rustdata_core::column::SqlTypeId::BigInt }
             }
             Some("i32") | Some("Int32") => {
-                quote! { ::rustdata::column::SqlTypeId::Int }
+                quote! { ::rustdata_core::column::SqlTypeId::Int }
             }
             Some("f64") | Some("Float") | Some("f32") => {
-                quote! { ::rustdata::column::SqlTypeId::Float }
+                quote! { ::rustdata_core::column::SqlTypeId::Float }
             }
-            Some("Vec") => quote! { ::rustdata::column::SqlTypeId::Jsonb },
-            Some("HashSet") => quote! { ::rustdata::column::SqlTypeId::Jsonb },
-            Some("Value") => quote! { ::rustdata::column::SqlTypeId::Jsonb },
-            Some("serde_json") => quote! { ::rustdata::column::SqlTypeId::Jsonb },
+            Some("Vec") => quote! { ::rustdata_core::column::SqlTypeId::Jsonb },
+            Some("HashSet") => quote! { ::rustdata_core::column::SqlTypeId::Jsonb },
+            Some("Value") => quote! { ::rustdata_core::column::SqlTypeId::Jsonb },
+            Some("serde_json") => quote! { ::rustdata_core::column::SqlTypeId::Jsonb },
             Some("NaiveDateTime") => {
-                quote! { ::rustdata::column::SqlTypeId::TimestampTz }
+                quote! { ::rustdata_core::column::SqlTypeId::TimestampTz }
             }
-            _ => quote! { ::rustdata::column::SqlTypeId::Text },
+            _ => quote! { ::rustdata_core::column::SqlTypeId::Text },
         }
     } else {
-        quote! { ::rustdata::column::SqlTypeId::Text }
+        quote! { ::rustdata_core::column::SqlTypeId::Text }
     }
 }
 

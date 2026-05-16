@@ -21,7 +21,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # allow signed-tag push from Gitea Actions runner
+  contents: write   # allow tag push from Gitea Actions runner
 
 jobs:
   # ── Validate: runs on every push + PR ──────────────────────────────────────
@@ -35,11 +35,8 @@ jobs:
           fetch-depth: 0           # full history for changelog parsing
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: clippy, rustfmt
 
       - name: Cache cargo registry
@@ -49,9 +46,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: rust-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          key: rust-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            rust-${{ matrix.rust }}-
+            rust-stable-
 
       - name: cargo fmt
         run: cargo fmt --all -- --check
@@ -70,17 +67,16 @@ jobs:
           cargo publish -p rustdata-migrations    --dry-run
           cargo publish -p rustdata-core          --dry-run
 
-  # ── Release: manual dispatch ───────────────────────────────────────────────
+  # ── Release: manual dispatch (single bump, uses env BUMP_TYPE) ───────────
 
   release:
-    name: release (bump=b${{ matrix.bump }})
+    name: release (bump=${{ env.BUMP_TYPE }})
     needs: validate
-    if: github.ref == 'refs/heads/master' && needs.validate.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        bump: [ patch, minor, major ]
+    env:
+      # Override via Gitea secret BUMP_TYPE when needed. Default: patch
+      BUMP_TYPE: patch
 
     steps:
       - uses: actions/checkout@v4
@@ -88,12 +84,12 @@ jobs:
           fetch-depth: 0           # full history for signed tagging
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: clippy, rustfmt
+
+      - name: Install cargo-edit (for cargo set-version)
+        run: cargo install cargo-edit --locked
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -102,15 +98,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: rust-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          key: rust-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            rust-${{ matrix.rust }}-
+            rust-stable-
 
       - name: Bump version in all member crates
         id: bump-version
         run: |
           CURRENT="$(grep '^version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          bump="${{ matrix.bump }}"
+          bump="${{ env.BUMP_TYPE }}"
           NEXT="$(bash scripts/bump_version.sh "$CURRENT" "$bump")"
           echo "NEXT=$NEXT"  >> "$GITHUB_SUMMARY"
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -144,26 +140,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit + sign-tag
+      - name: Commit + create annotated tag
         run: |
           TAG="${{ steps.bump-version.outputs.next_short }}"
           git add -A
           git commit -m "release: $TAG" --allow-empty
-          git tag -s "$TAG" -m "Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
 
-      - name: Push commit + signed tag to all remotes
+      - name: Push commit + tag to all remotes
         run: |
           TAG="${{ steps.bump-version.outputs.next_short }}"
           git push origin --follow-tags
           git push rustdata --follow-tags
 
-      - name: cargo publish — rustdata-core
+      - name: cargo publish (all crates)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p rustdata-macros
-          cargo publish -p rustdata-migrations
-          cargo publish -p rustdata-core
+          cargo publish -p rustdata-macros --allow-dirty
+          cargo publish -p rustdata-migrations --allow-dirty
+          cargo publish -p rustdata-core --allow-dirty
 
   # ═══════════════════════════════════════════════════════════════════════════
   #  Optional step — Gitea mirror hook
@@ -180,4 +176,3 @@ jobs:
     steps:
       - name: No-op (Gitea is primary origin; mirror disabled)
         run: echo "Gitea mirror hook not configured. Uncomment and wire URL to enable."
-

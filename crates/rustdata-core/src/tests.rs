@@ -405,15 +405,15 @@ fn current_timestamp() {
 
 #[test]
 fn render_pagination_limit_offset() {
-    let sql = "SELECT * FROM users";
-    let result = SqlDialect::Postgres.render_pagination(sql, "ORDER BY id ASC", 10, 20);
+    let sql = "SELECT * FROM users ORDER BY id ASC";
+    let result = SqlDialect::Postgres.render_pagination(sql, 10, 20);
     assert_eq!(result, "SELECT * FROM users ORDER BY id ASC LIMIT 20 OFFSET 10");
 }
 
 #[test]
 fn render_pagination_mssql() {
-    let sql = "SELECT * FROM users";
-    let result = SqlDialect::MsSql.render_pagination(sql, "ORDER BY id ASC", 10, 20);
+    let sql = "SELECT * FROM users ORDER BY id ASC";
+    let result = SqlDialect::MsSql.render_pagination(sql, 10, 20);
     assert_eq!(result, "SELECT * FROM users ORDER BY id ASC OFFSET 10 ROWS FETCH NEXT 20 ROWS ONLY");
 }
 
@@ -572,7 +572,7 @@ fn sql_gen_default_order_by_no_id() {
 
 #[test]
 fn filter_eq() {
-    let f = Filter { column: "status".into(), operator: FilterOperator::Eq, value: SqlValue::Str("active".into()) };
+    let f = Filter::new("status", FilterOperator::Eq, SqlValue::Str("active".into()));
     let (sql, params, next) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "status = $1");
     assert_eq!(next, 2);
@@ -581,28 +581,28 @@ fn filter_eq() {
 
 #[test]
 fn filter_ne() {
-    let f = Filter { column: "status".into(), operator: FilterOperator::Ne, value: SqlValue::Str("deleted".into()) };
+    let f = Filter::new("status", FilterOperator::Ne, SqlValue::Str("deleted".into()));
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "status != $1");
 }
 
 #[test]
 fn filter_is_null() {
-    let f = Filter { column: "deleted_at".into(), operator: FilterOperator::IsNull, value: SqlValue::Null(SqlTypeId::TimestampTz) };
+    let f = Filter::new("deleted_at", FilterOperator::IsNull, SqlValue::Null(SqlTypeId::TimestampTz));
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "deleted_at IS NULL");
 }
 
 #[test]
 fn filter_like() {
-    let f = Filter { column: "name".into(), operator: FilterOperator::Like, value: SqlValue::Str("%brew%".into()) };
+    let f = Filter::new("name", FilterOperator::Like, SqlValue::Str("%brew%".into()));
     let (sql, _, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
 }
 
 #[test]
 fn filter_contains() {
-    let f = Filter { column: "name".into(), operator: FilterOperator::Contains, value: SqlValue::Str("brew".into()) };
+    let f = Filter::new("name", FilterOperator::Contains, SqlValue::Str("brew".into()));
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("%brew%".into())]);
@@ -610,7 +610,7 @@ fn filter_contains() {
 
 #[test]
 fn filter_starts_with() {
-    let f = Filter { column: "name".into(), operator: FilterOperator::StartsWith, value: SqlValue::Str("brew".into()) };
+    let f = Filter::new("name", FilterOperator::StartsWith, SqlValue::Str("brew".into()));
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("brew%".into())]);
@@ -618,7 +618,7 @@ fn filter_starts_with() {
 
 #[test]
 fn filter_ends_with() {
-    let f = Filter { column: "name".into(), operator: FilterOperator::EndsWith, value: SqlValue::Str("brew".into()) };
+    let f = Filter::new("name", FilterOperator::EndsWith, SqlValue::Str("brew".into()));
     let (sql, params, _) = f.to_sql(SqlDialect::Postgres, 1);
     assert_eq!(sql, "name LIKE $1");
     assert_eq!(params, vec![SqlValue::Str("%brew".into())]);
@@ -626,7 +626,7 @@ fn filter_ends_with() {
 
 #[test]
 fn filter_offset_propagation() {
-    let f = Filter { column: "x".into(), operator: FilterOperator::Eq, value: SqlValue::I64(1) };
+    let f = Filter::new("x", FilterOperator::Eq, SqlValue::I64(1));
     let (sql, _, next) = f.to_sql(SqlDialect::Postgres, 5);
     assert_eq!(sql, "x = $5");
     assert_eq!(next, 6);

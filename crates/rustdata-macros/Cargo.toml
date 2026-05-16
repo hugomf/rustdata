@@ -2,6 +2,8 @@
 name = "rustdata-macros"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Procedural macros for rustdata-core: #[derive(Entity)], #[derive(QueryMethods)], #[derive(Projection)], #[derive(SqlType)]"
 
 [lib]
 proc-macro = true

@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/rustdata-core", "crates/rustdata-macros", "crates/rustdata-migrations"]
-resolver = "3"
+resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +16,6 @@ rust-version = "1.75"
 
 [workspace.dependencies]
 hex = "0.4"
-sha2 = "0.11.0"
+sha2 = "0.10"
 walkdir = "2"
 
