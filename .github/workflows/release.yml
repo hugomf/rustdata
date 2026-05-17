@@ -1,14 +1,15 @@
 # ── .github/workflows/release.yml ─────────────────────────────────────────────
 #
-# GitHub-native CI using github-script for version bump + changelog diff.
+# GitHub Actions — PRIMARY publisher.
+# Triggered manually. Pushes to GitHub origin only.
 #
 # Jobs:
 #   validate  — runs on every push + PR: fmt / clippy / test / publish --dry-run
 #   release   — manual dispatch (dropdown: patch / minor / major): bumps version,
-#               tags, pushes to GitHub + Gitea remotes, publishes to crates.io.
+#               tags, pushes to primary GitHub origin, publishes to crates.io.
 #
-# Required GitHub Secrets (Repo → Settings → Secrets and variables → Actions):
-#   CARGO_REGISTRY_TOKEN  — crates.io API token (NOT a GitHub token)
+# Required Secrets:
+#   CARGO_REGISTRY_TOKEN  — crates.io API token
 
 name: rustdata-release
 
@@ -27,11 +28,9 @@ on:
         default: patch
 
 permissions:
-  contents: write   # signed-git-tag + push on dispatch
+  contents: write   # allow tag push
 
 jobs:
-  # ── Validate ────────────────────────────────────────────────────────────────
-
   validate:
     name: validate (fmt + clippy + test + dry-run)
     runs-on: ubuntu-latest
@@ -56,7 +55,7 @@ jobs:
           restore-keys: |
             rust-stable-
 
-      - name: cargo fmt
+      - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
@@ -70,12 +69,9 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish -p rustdata-macros --dry-run
 
-  # ── Full release ────────────────────────────────────────────────────────────
-
   release:
     name: release (${{ github.event.inputs.bump || 'patch' }})
     needs: validate
-    # Only run on manual dispatch, not on every push/PR
     if: github.event_name == 'workflow_dispatch' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
 
@@ -134,18 +130,16 @@ jobs:
           VER="${{ steps.version.outputs.next }}"
           cargo set-version --workspace "$VER"
 
-      - name: Update CHANGELOG.md ── capture diff block
+      - name: Update CHANGELOG.md
         id: changelog
         run: |
           VER="${{ steps.version.outputs.next }}"
           DATE="$(date +%Y-%m-%d)"
-          NEXT_TAG="${{ steps.version.outputs.next_short }}"
           SECTION="/tmp/new_changelog_section.md"
 
           printf '## [%s] - %s\n\n### Added\n\n### Changed\n\n### Fixed\n\n' \
             "$VER" "$DATE" > "$SECTION"
 
-          # inject at top (below preamble header "# CHANGELOG" if present) ──
           if grep -q '^# CHANGELOG' CHANGELOG.md 2>/dev/null; then
             tmp=$(mktemp)
             pivot=$(grep -n '^# CHANGELOG' CHANGELOG.md | head -1 | cut -d: -f1)
@@ -154,7 +148,6 @@ jobs:
           else
             { echo ""; cat "$SECTION"; } >> CHANGELOG.md
           fi
-          # Use heredoc delimiter for multiline output
           {
             echo "next_section<<EOF"
             grep -A 5 '^## \['"$VER"']' CHANGELOG.md | head -6

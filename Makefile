@@ -1,13 +1,13 @@
 # rustdata Makefile
 # ─────────────────────────────────────────────────────────────────────────────
-#   INFO
-#     make check               fmt + clippy + test the whole workspace
-#     make bump-version VER=x   bump workspace version (uses cargo-set-version)
-#     make changelog [VER=x]    append or update the [x.y.z] section in CHANGELOG.md
-#     make publish-dry-run      cargo publish --dry-run for rustdata-macros
-#                               (leaf crate — workspace-dep crates validated by cargo test)
-#     make tag                  git commit + GPG-sign tag vX.Y.Z + push --follow-tags
-#     make publish              full release (check → changelog → dry-run → tag → publish)
+#   make check               fmt + clippy + test the whole workspace
+#   make bump-version VER=x   bump workspace version (uses cargo-set-version)
+#   make changelog [VER=x]    insert [x.y.z] section into CHANGELOG.md
+#   make publish-dry-run      cargo publish --dry-run for rustdata-macros
+#                              (leaf crate only — workspace crates validated by cargo test)
+#   make tag                  git commit + annotated tag + push --follow-tags
+#   make publish-upload       cargo publish × 3 (macros → migrations → core)
+#   make publish              full pipeline in one shot
 # ─────────────────────────────────────────────────────────────────────────────
 
 export TZ := UTC
@@ -68,9 +68,9 @@ changelog:
 .PHONY: publish-dry-run
 publish-dry-run:
 	@echo "=== publish-dry-run: rustdata-macros (leaf crate, no workspace deps) ===" && cargo publish -p rustdata-macros        --dry-run
-	@echo "=== publish-dry-run: rustdata-migrations (depends on rustdata-macros from crates.io — skipped for dry-run) ===" && true
-	@echo "=== publish-dry-run: rustdata-core (depends on rustdata-macros from crates.io — skipped for dry-run) ===" && true
-	@echo "Dry-run check passed (leaf crate only; workspace crates validated via cargo test)."
+	@echo "=== publish-dry-run: rustdata-migrations (sibling dep — validated by cargo test) ===" && true
+	@echo "=== publish-dry-run: rustdata-core (sibling dep — validated by cargo test) ===" && true
+	@echo "Dry-run passed."
 
 # ── Git tag ───────────────────────────────────────────────────────────────────
 
@@ -78,14 +78,13 @@ publish-dry-run:
 tag:
 	@VER=$$(grep 'version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
 	TAG="v$$VER"; \
-	echo "Creating signed tag $$TAG …"; \
+	echo "Creating annotated tag $$TAG …"; \
 	git commit -am "release: $$TAG" --allow-empty && \
-	git tag -s "$$TAG" -m "Release $$TAG"; \
-	git push origin --follow-tags && \
-	git push rustdata --follow-tags && \
-	echo "Tag $$TAG pushed to origin and rustdata."
+	git tag -a "$$TAG" -m "Release $$TAG"; \
+	git push origin --follow-tags; \
+	echo "Tag $$TAG pushed to origin."
 
-# ── Publish upload only (no re-run of check/changelog/dry-run/tag) ───────────
+# ── Publish upload ────────────────────────────────────────────────────────────
 
 .PHONY: publish-upload
 publish-upload:
@@ -94,7 +93,7 @@ publish-upload:
 	@echo "=== publish-upload: rustdata-core ==="      && cargo publish -p rustdata-core
 	@echo "═══ All three crates published to crates.io ════════"
 
-# ── Full publish ──────────────────────────────────────────────────────────────
+# ── Full pipeline ─────────────────────────────────────────────────────────────
 
 .PHONY: publish
 publish: check changelog publish-dry-run tag publish-upload
