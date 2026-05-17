@@ -1,32 +1,31 @@
 # ── .gitea/workflows/release.yml ─────────────────────────────────────────────
 #
-# Gitea-native CI (compatible with Gitea >= 1.19, which ships a reproduction
-# of the GitHub Marketplace actions: actions/checkout@v4, actions/upload-artifact,
-# actions/download-artifact).
+# Gitea-native CI — equivalent to the GitHub Actions workflow.
 #
-# Jobs:
-#   validate  — runs on push + PR: fmt / clippy / test / publish --dry-run
-#   release   — manual trigger: bumps version, tags git, publishes to crates.io
+# Only `workflow_dispatch` triggers the release. No push/PR events.
+# Publish-only: Gitea is the sole CI publisher. GitHub Actions can be
+# disabled or retained as redundancy — they are independent of this file.
 #
 # Required Gitea Secrets (Settings → Actions → Secrets):
 #   CARGO_REGISTRY_TOKEN  — crates.io API token (NOT a GitHub token)
-#   GH_MIRROR_TOKEN       — GitHub personal access token with repo write access
-#                            (used to push tag to GitHub mirror via HTTPS)
 
 name: rustdata-release
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver bump type"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
-  contents: write   # allow tag push from Gitea Actions runner
+  contents: write  # allow tag push
 
 jobs:
-  # ── Validate: runs on every push + PR ──────────────────────────────────────
+  # ── Validate ────────────────────────────────────────────────────────────────
 
   validate:
     name: validate (fmt + clippy + test + dry-run)
@@ -34,31 +33,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0           # full history for changelog parsing
+          fetch-depth: 0
 
-      - name: Install Rust toolchain
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo registry
+      - name: Cache cargo registry / target
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/
+            target
           key: rust-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             rust-stable-
 
-      - name: cargo fmt
+      - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: cargo test (workspace)
+      - name: cargo test
         run: cargo test --workspace --all-features
 
       - name: cargo publish --dry-run (leaf crate, no workspace deps)
@@ -66,23 +65,20 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish -p rustdata-macros --dry-run
 
-  # ── Release: manual dispatch (single bump, uses env BUMP_TYPE) ───────────
+  # ── Release — manual dispatch only ─────────────────────────────────────────
 
   release:
-    name: release (bump=${{ env.BUMP_TYPE }})
+    name: release (${{ github.event.inputs.bump || 'patch' }})
     needs: validate
     if: github.event_name == 'workflow_dispatch' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
-    env:
-      # Override via Gitea secret BUMP_TYPE when needed. Default: patch
-      BUMP_TYPE: patch
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0           # full history for signed tagging
+          fetch-depth: 0
 
-      - name: Install Rust toolchain
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -90,91 +86,101 @@ jobs:
       - name: Install cargo-edit (for cargo set-version)
         run: cargo install cargo-edit --locked
 
-      - name: Cache cargo registry
+      - name: Cache cargo registry / target
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/
+            target
           key: rust-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             rust-stable-
 
+      - name: Compute next version
+        id: version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            function bump(current, type) {
+              const [major, minor, patch] = current.split('.').map(Number);
+              if (type === 'major') return `${major+1}.0.0`;
+              if (type === 'minor') return `${major}.${minor+1}.0`;
+              return `${major}.${minor}.${patch+1}`;
+            }
+            const tm = fs.readFileSync(path.join(process.env.GITHUB_WORKSPACE, 'crates', 'rustdata-core', 'Cargo.toml'), 'utf8');
+            const m = tm.match(/^version\s*=\s*"([^"]+)"/m);
+            if (!m) core.setFailed('Could not read current version');
+            const current = m[1];
+            const bumpType = github.event.inputs.bump || 'patch';
+            const next = bump(current, bumpType);
+            core.setOutput('current', current);
+            core.setOutput('next', next);
+            core.setOutput('next_short', 'v' + next);
+            core.info(`Bumping ${current} → ${next} (type=${bumpType})`);
+
       - name: Bump version in all member crates
-        id: bump-version
         run: |
-          CURRENT="$(grep '^version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          bump="${{ env.BUMP_TYPE }}"
-          NEXT="$(bash scripts/bump_version.sh "$CURRENT" "$bump")"
-          echo "NEXT=$NEXT"  >> "$GITHUB_SUMMARY"
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "next=$NEXT"      >> "$GITHUB_OUTPUT"
-          echo "next_short=v$NEXT" >> "$GITHUB_OUTPUT"
-
-
-      - name: Set workspace version to $$NEXT
-        run: cargo set-version --workspace "${{ steps.bump-version.outputs.next }}"
-
-      - name: Confirm versions
-        run: |
-          cargo metadata --format-version=1 --no-deps \
-            | python3 -c "import sys,json;\
-              print(', '.join(f\"{p['name']}={p['version']}\" \
-                for p in json.load(sys.stdin)['packages'] if 'rustdata' in p['name']))"
-
+          VER="${{ steps.version.outputs.next }}"
+          cargo set-version --workspace "$VER"
 
       - name: Update CHANGELOG.md
+        id: changelog
         run: |
-          TITLE="${{ steps.bump-version.outputs.next_short }}"
+          VER="${{ steps.version.outputs.next }}"
           DATE="$(date +%Y-%m-%d)"
+          SECTION="/tmp/new_changelog_section.md"
+
+          printf '## [%s] - %s\n\n### Added\n\n### Changed\n\n### Fixed\n\n' \
+            "$VER" "$DATE" > "$SECTION"
+
+          if grep -q '^# CHANGELOG' CHANGELOG.md 2>/dev/null; then
+            tmp=$(mktemp)
+            pivot=$(grep -n '^# CHANGELOG' CHANGELOG.md | head -1 | cut -d: -f1)
+            { head -n "$pivot" CHANGELOG.md; echo ""; cat "$SECTION"; tail -n +$((pivot + 1)) CHANGELOG.md; } > "$tmp"
+            mv "$tmp" CHANGELOG.md
+          else
+            { echo ""; cat "$SECTION"; } >> CHANGELOG.md
+          fi
           {
-            printf "## [%s] - %s\n\n" "$TITLE" "$DATE"
-            printf "### Added\n### Changed\n### Fixed\n\n"
-            cat CHANGELOG.md
-          } > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
+            echo "next_section<<EOF"
+            grep -A 5 '^## \['"$VER"']' CHANGELOG.md | head -6
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Show CHANGELOG diff (review before tagging)
+        run: |
+          git -c color.ui=never diff CHANGELOG.md | sed -n '/^---$/,/^@@/p; /^+## \[/p'
 
       - name: Configure git identity
         run: |
           git config user.name "gitea-actions"
           git config user.email "gitea-actions@noreply.gitea"
 
-      - name: Commit + create annotated tag
+      - name: Commit version bump + changelog
         run: |
-          TAG="${{ steps.bump-version.outputs.next_short }}"
-          git add -A
-          git commit -m "release: $TAG" --allow-empty
+          TAG="${{ steps.version.outputs.next_short }}"
+          git commit -am "release: v$TAG" || true
+
+      - name: Create and push version tag (annotated, not signed)
+        run: |
+          TAG="${{ steps.version.outputs.next_short }}"
           git tag -a "$TAG" -m "Release $TAG"
-
-      - name: Push commit + tag to all remotes
-        run: |
-          TAG="${{ steps.bump-version.outputs.next_short }}"
-          # Push to primary Gitea remote via SSH
           git push origin --follow-tags
-          # Push to GitHub mirror using PAT (no SSH key)
-          git remote add github https://x-access-token:${{ secrets.GH_MIRROR_TOKEN }}@github.com/hugomf/rustdata.git
-          git push github --follow-tags
 
-      - name: cargo publish (all crates)
+      - name: cargo publish — rustdata-macros
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish -p rustdata-macros --allow-dirty
-          cargo publish -p rustdata-migrations --allow-dirty
-          cargo publish -p rustdata-core --allow-dirty
+        run: cargo publish -p rustdata-macros --allow-dirty
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  #  Optional step — Gitea mirror hook
-  #  If Gitea is primary, keep this step and adjust the URL below.
-  #  The step is guarded by `if: false` so it never fires during manual dispatch.
-  # ═══════════════════════════════════════════════════════════════════════════
+      - name: cargo publish — rustdata-migrations
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p rustdata-migrations --allow-dirty
 
-  post-to-gitea:
-    name: Post to Gitea mirror hook (optional)
-    needs: release
-    if: |
-      github.repository == 'hugomf/rustdata'   # guard: runs on push only, not dispatch
-    runs-on: ubuntu-latest
-    steps:
-      - name: No-op (Gitea is primary origin; mirror disabled)
-        run: echo "Gitea mirror hook not configured. Uncomment and wire URL to enable."
+      - name: cargo publish — rustdata-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p rustdata-core --allow-dirty

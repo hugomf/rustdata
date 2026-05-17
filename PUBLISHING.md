@@ -35,7 +35,6 @@ graph LR
 - `CARGO_REGISTRY_TOKEN` stored as an Actions secret:
   - **GitHub**: Settings → Secrets and variables → Actions → New repository secret
   - **Gitea**: Settings → Actions → Secrets → Add Secret
-- For Gitea Actions only: `GH_MIRROR_TOKEN` stored as a Gitea Actions secret — a GitHub PAT with `repo` scope, used to push the release tag to the GitHub mirror via HTTPS (SSH access from Gitea runners to GitHub is not assumed).
 - For local releases: `git` with GPG or SSH tag signing configured, and `cargo-set-version` installed:
 
 ```bash
@@ -106,12 +105,19 @@ The `release` job only runs on **manual dispatch** and only after `validate` pas
 
 **Trigger:** Gitea → Actions → `rustdata-release` → **Run**
 
-The Gitea pipeline is identical to the GitHub pipeline except:
+The Gitea pipeline mirrors the GitHub pipeline exactly — `workflow_dispatch` with a bump dropdown, `validate` on push/PR, and `release` on manual dispatch. The only differences are internal to the runner:
 
-- Version bumping uses `scripts/bump_version.sh` (Python) instead of `actions/github-script`.
-- The bump type is controlled by the `BUMP_TYPE` environment variable (default: `patch`) rather than a dropdown input.
-- The GitHub Release creation step is absent. To add release notes, call the Gitea Releases API.
-- The tag push step adds the GitHub mirror remote via HTTPS + PAT (`GH_MIRROR_TOKEN`) and pushes there too.
+- `actions/github-script@v7` is used for version bumping (same as GitHub).
+- Build, test, changelog, tagging, and `cargo publish` steps are identical.
+- Pushes only to Gitea's own `origin` remote. No GitHub mirror involved.
+
+| Step | Detail |
+|---|---|
+| Compute next version | `actions/github-script@v7` reads `rustdata-core/Cargo.toml`, applies selected bump type |
+| Bump workspace version | `cargo set-version --workspace $VER` |
+| Update `CHANGELOG.md` | Injects `## [x.y.z] - YYYY-MM-DD` below the `# CHANGELOG` header |
+| Commit + tag + push | Annotated tag `vX.Y.Z`, push `--follow-tags` to Gitea `origin` |
+| `cargo publish` | All three crates in dependency order with `--allow-dirty` |
 
 ---
 
