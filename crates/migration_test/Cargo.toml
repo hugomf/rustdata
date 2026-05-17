@@ -1,0 +1,14 @@
+[package]
+name = "migration-test"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+rustdata-core = { path = "../rustdata-core", features = ["sqlite"] }
+rustdata-macros  = { path = "../rustdata-macros" }
+rustdata-migrations = { path = "../rustdata-migrations" }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }

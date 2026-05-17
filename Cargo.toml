@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/rustdata-core", "crates/rustdata-macros", "crates/rustdata-migrations"]
+members = ["crates/rustdata-core", "crates/rustdata-macros", "crates/rustdata-migrations", "crates/migration_test"]
 resolver = "2"
 
 [workspace.package]
