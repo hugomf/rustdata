@@ -21,6 +21,7 @@ This document describes the internal design of rustdata: how the crates relate, 
    - [Pagination](#49-pagination)
    - [Specification pattern](#410-specification-pattern)
    - [Error handling](#411-error-handling)
+   - [Transactions](#412-transactions)
 5. [`rustdata-migrations`](#5-rustdata-migrations)
    - [Compile-time embedding](#51-compile-time-embedding)
    - [`migrate!` macro](#52-migrate-macro)
@@ -70,6 +71,8 @@ graph TD
 ```
 
 > `rustdata-macros` is a build-host dependency. The arrows into it are compile-time only; it is not linked into the final binary.
+>
+> **Macro reference:** `Entity` and `QueryMethods` generate the repository traits and implementations. `Projection` generates partial structs for selecting a subset of columns. `SqlType` maps custom Rust types to their SQL representations. `include_migrations!` embeds migration files at compile time.
 
 ---
 
@@ -142,7 +145,7 @@ Three concrete backend structs are provided, each gated behind its Cargo feature
 | Struct | `sqlx::Database` | Feature |
 |---|---|---|
 | `backends::Sqlite` | `sqlx::Sqlite` | `sqlite` |
-| `backends::Postgres` | `sqlx::PgDatabase` | `postgres` |
+| `backends::Postgres` | `sqlx::Postgres` | `postgres` |
 | `backends::MySql` | `sqlx::MySql` | `mysql` |
 
 **`DefaultBackend`** is a type alias in `rustdata-core` that resolves to the active backend via `cfg(feature)`. The `#[derive(Entity)]` macro references `::rustdata_core::DefaultBackend`, so the generated `UserRepo` alias is always concrete — no generic parameter leaks to the call site.
@@ -220,6 +223,10 @@ All SQL strings are generated on first call from `D`'s constants and `BA`'s dial
 └──────────────────────┴──────────────────────────────────────────┘
 ```
 
+> **`count_with_filters`** accepts raw SQL `WHERE` fragments and bound parameters, bridging the gap between the strongly-typed Specification pattern and completely ad-hoc SQL.
+>
+> **`QueryRepository<BA, D>`** is a read-only subset of `CrudRepository` that only exposes `find_*`, `count_*`, and `exists_*` methods. It is useful for injecting into services that should not mutate state.
+
 ---
 
 ### 4.4 SQL generation and caching
@@ -228,7 +235,7 @@ Static SQL strings are assembled once per (`Backend`, `EntityDescriptor`) pair a
 
 ```mermaid
 flowchart LR
-    call["repo.find_by_id(id)"]
+    invoke["repo.find_by_id(id)"]
     lock{{"OnceLock\nhit?"}}
     gen["Assemble SQL from\nD::TABLE, D::id_column,\nBA::dialect().ph(1)"]
     cached["Cached SQL string"]
@@ -237,7 +244,7 @@ flowchart LR
     extract["D::from_row via\nRowExtractor"]
     result["Option<Entity>"]
 
-    call --> lock
+    invoke --> lock
     lock -- "miss (first call)" --> gen --> cached
     lock -- hit --> cached
     cached --> bind --> exec --> extract --> result
@@ -299,6 +306,8 @@ flowchart LR
 
 When `#[entity(soft_delete = "deleted_at")]` is present, `EntityDescriptor::SOFT_DELETE_COL` is `Some("deleted_at")` and `CrudRepository::delete` emits an `UPDATE` instead of a `DELETE`. `hard_delete` always emits the physical `DELETE` regardless.
 
+> **`clear()`** always performs a physical `DELETE FROM` (or `TRUNCATE`), bypassing soft-delete logic entirely. It is intended for test teardown or complete table wipes.
+
 ---
 
 ### 4.8 Lifecycle hooks
@@ -309,6 +318,11 @@ When `#[entity(soft_delete = "deleted_at")]` is present, `EntityDescriptor::SOFT
 impl LifecycleHooks<User> for MyHooks {
     fn before_save(entity: &mut User) -> Result<(), RepositoryError> {
         entity.updated_at = Utc::now();
+        Ok(())
+    }
+
+    fn after_save(entity: &User) -> Result<(), RepositoryError> {
+        tracing::info!(id = %entity.id, "entity saved");
         Ok(())
     }
 }
@@ -374,10 +388,24 @@ Implement `Specification<User>` on a domain type to encapsulate a business rule 
 ```mermaid
 flowchart LR
     sqlx["sqlx::Error"]
-    conv["From<sqlx::Error>\n\nPG 23505 · MySQL 1062 · SQLite text\n→ UniqueViolation\n\nPG 23503 · MySQL 1452 · SQLite 787\n→ ForeignKeyViolation\n\nPG 57014 → Timeout\nPoolTimedOut → Connection\nPoolClosed → Unavailable\n_ → Database"]
+    conv["From<sqlx::Error>\n\nPG 23505 · MySQL 1062 · SQLite text\n→ UniqueViolation\n\nPG 23503 · MySQL 1452 · SQLite 787 extended\n→ ForeignKeyViolation\n\nPG 57014 → Timeout\nPoolTimedOut → Connection\nPoolClosed → Unavailable\n_ → Database"]
     re["RepositoryError\n\nConnection · Unavailable · Timeout\nUniqueViolation { constraint, detail }\nForeignKeyViolation { detail }\nNotFound { entity, id }\nExtraction { column, reason }\nDeserialization\nOptimisticLock { entity }\nDatabase · Transaction"]
 
     sqlx --> conv --> re
+```
+
+---
+
+### 4.12 Transactions
+
+`CrudRepository` can be constructed from either a `sqlx::Pool` for auto-commit operations, or a `sqlx::Transaction` to participate in an explicit transaction. When using a transaction, all operations (`insert`, `update`, `delete`, etc.) execute within that transaction scope. The transaction commits or rolls back based on the caller's logic, keeping repository methods unaware of transaction boundaries.
+
+```rust
+let mut tx = pool.begin().await?;
+let repo = UserRepo::new(&mut tx);
+repo.insert(user.clone()).await?;
+repo.delete(&user.id).await?;
+tx.commit().await?;
 ```
 
 ---
@@ -432,18 +460,21 @@ Each dialect runner applies the embedded migrations in ascending version order:
 
 ```mermaid
 sequenceDiagram
+    participant App
     participant Runner
     participant DB
 
     Runner->>DB: CREATE TABLE IF NOT EXISTS schema_migrations
 
-    Runner->>DB: SELECT version FROM schema_migrations
-    DB-->>Runner: [applied versions]
+    Runner->>DB: SELECT version, checksum FROM schema_migrations
+    DB-->>Runner: [applied versions and checksums]
 
     loop For each embedded migration (sorted by version)
-        alt version already applied
+        alt version already applied AND checksum matches
             Runner-->>Runner: skip
-        else pending
+        else version already applied BUT checksum mismatch
+            Runner-->>App: Err(ChecksumMismatch { version, expected, actual })
+        else pending (not yet applied)
             Runner->>Runner: Transpiler.transpile(sql, dialect)
             Runner->>DB: BEGIN TRANSACTION
             Runner->>DB: Execute transpiled DDL
@@ -488,6 +519,8 @@ Type mapping reference:
 
 `SqlDialect::ph(n)` selects the placeholder style: `$n` (Postgres), `?` (SQLite/MySQL), `@Pn` (MSSQL).
 
+> **MSSQL support:** The `@Pn` placeholder format is reserved for forward compatibility. Full MSSQL backend support is planned but not yet implemented.
+
 ---
 
 ## 6. Data flow: a single `insert`
@@ -518,7 +551,9 @@ sequenceDiagram
     Bind-->>Repo: bound query
 
     Repo->>Pool: execute(query)
-    Pool-->>Repo: Ok(())
+    Pool-->>Repo: Ok(query_result)
+
+    Note over Repo: For auto-generated columns (e.g., IDs, DEFAULTs),\nre-query the row or use RETURNING clause\n(strategy depends on the Backend dialect).
 
     Repo->>Hooks: after_save(&user)
     Hooks-->>Repo: Ok(())
