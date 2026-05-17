@@ -12,7 +12,7 @@ pub struct Page<E> {
 impl<E> Page<E> {
     pub fn new(content: Vec<E>, total_elements: u64, pageable: &Pageable) -> Self {
         let size = pageable.size.max(1);
-        let total_pages = (total_elements + size - 1) / size;
+        let total_pages = total_elements.div_ceil(size);
         Self {
             content,
             total_elements,

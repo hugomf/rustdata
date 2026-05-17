@@ -240,7 +240,9 @@ where
             let file = files
                 .iter()
                 .find(|f| f.version == applied_migration.version)
-                .ok_or_else(|| MigrationError::MissingMigrationFile(applied_migration.version))?;
+                .ok_or(MigrationError::MissingMigrationFile(
+                    applied_migration.version,
+                ))?;
             if file.checksum != applied_migration.checksum {
                 return Err(MigrationError::ChecksumMismatch {
                     version: applied_migration.version,

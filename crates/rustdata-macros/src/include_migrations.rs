@@ -75,7 +75,10 @@ fn parse_version(stem: &str) -> Option<u64> {
         .or_else(|| stem.strip_prefix('M'))
         .unwrap_or(stem);
 
-    let prefix = s.split(|c: char| c == '_' || c == '-').next().unwrap_or(s);
+    let prefix = s
+        .split(|c: char| ['_', '-'].contains(&c))
+        .next()
+        .unwrap_or(s);
 
     prefix.parse::<u64>().ok()
 }

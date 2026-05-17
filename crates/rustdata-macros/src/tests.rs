@@ -23,7 +23,7 @@ fn entity_basic() {
     assert!(output.contains("EntityDescriptor for User"));
     assert!(output.contains(r#"const TABLE : & 'static str = "users""#));
     assert!(output.contains("type Id = uuid :: Uuid"));
-    assert!(output.contains("pub type UserRepo < BA >"));
+    assert!(output.contains("pub type UserRepo = :: rustdata_core :: repo :: CrudRepository"));
 }
 
 #[test]
@@ -201,8 +201,8 @@ fn entity_repo_type_alias() {
         }
     });
     let output = expand_derive(input).to_string();
-    assert!(output.contains("pub type UserRepo < BA >"));
-    assert!(output.contains("CrudRepository < BA , User >"));
+    assert!(output.contains("pub type UserRepo = :: rustdata_core :: repo :: CrudRepository"));
+    assert!(output.contains("CrudRepository < :: rustdata_core :: DefaultBackend , User"));
 }
 
 // ─── SqlType ─────────────────────────────────────────────────────

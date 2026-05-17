@@ -108,7 +108,7 @@ impl Transpiler {
         let line = self.pass_default_substitution(&line, warnings);
         let line = self.pass_varchar_substitution(&line, warnings);
         let line = self.pass_structural(&line, warnings);
-        line
+        self.pass_structural(&line, warnings)
     }
 
     /// Pass 2: Type name substitution (UUID → TEXT, JSONB → NVARCHAR(MAX), etc.)
@@ -282,10 +282,10 @@ impl Transpiler {
         if matches!(
             self.dialect,
             Dialect::Postgres | Dialect::Sqlite | Dialect::MySql
-        ) {
-            if trimmed.starts_with("CREATE TABLE ") && !trimmed.contains("IF NOT EXISTS") {
-                return line.replacen("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1);
-            }
+        ) && trimmed.starts_with("CREATE TABLE ")
+            && !trimmed.contains("IF NOT EXISTS")
+        {
+            return line.replacen("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1);
         }
 
         if self.dialect == Dialect::MsSql && trimmed.starts_with("CREATE TABLE IF NOT EXISTS ") {
@@ -332,10 +332,8 @@ impl Transpiler {
             );
         }
 
-        if self.dialect == Dialect::Oracle {
-            if trimmed.contains(" ADD COLUMN ") {
-                return line.replace(" ADD COLUMN ", " ADD ");
-            }
+        if self.dialect == Dialect::Oracle && trimmed.contains(" ADD COLUMN ") {
+            return line.replace(" ADD COLUMN ", " ADD ");
         }
 
         if self.dialect == Dialect::Oracle && trimmed.starts_with("CREATE INDEX IF NOT EXISTS ") {

@@ -54,7 +54,10 @@ pub fn parse_version(stem: &str) -> Result<u64, RunnerError> {
         .strip_prefix('m')
         .or_else(|| s.strip_prefix('M'))
         .unwrap_or(s);
-    let prefix = s.split(|c: char| c == '_' || c == '-').next().unwrap_or(s);
+    let prefix = s
+        .split(|c: char| ['_', '-'].contains(&c))
+        .next()
+        .unwrap_or(s);
     prefix
         .parse::<u64>()
         .map_err(|_| RunnerError::InvalidVersion(stem.to_string()))
@@ -142,7 +145,7 @@ where
         let out = transpiler.transpile(canonical_sql)?;
         runner.execute_sql(pool, &out.sql).await?;
 
-        let description = stem.splitn(2, "__").nth(1).unwrap_or(stem);
+        let description = stem.split_once("__").map(|x| x.1).unwrap_or(stem);
         let checksum = compute_checksum(canonical_sql);
         runner
             .record_applied(pool, version, description, &checksum)
