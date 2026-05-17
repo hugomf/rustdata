@@ -67,8 +67,8 @@ pub fn expand_derive(input: DeriveInput) -> TokenStream {
     // bound on CrudRepository is satisfied without any user boilerplate.
     let hooks_impl = match entity_attrs.hooks.as_deref() {
         Some(hooks_path) => {
-            let hooks_ty: syn::Type = syn::parse_str(hooks_path)
-                .expect("hooks attribute must be a valid Rust type path");
+            let hooks_ty: syn::Type =
+                syn::parse_str(hooks_path).expect("hooks attribute must be a valid Rust type path");
             quote! {
                 impl ::rustdata_core::lifecycle::LifecycleHooks<#entity_ctor> for #struct_name {
                     fn before_save(entity: &mut #entity_ctor) -> ::std::result::Result<(), ::rustdata_core::error::RepositoryError> {

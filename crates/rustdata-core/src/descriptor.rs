@@ -9,22 +9,10 @@ pub trait RowExtractor: Send + Sync + Default + 'static {
     type Row: Send + Sync;
 
     fn get_str(&self, row: &Self::Row, col: &str) -> Result<String, RepositoryError>;
-    fn get_opt_str(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<Option<String>, RepositoryError>;
+    fn get_opt_str(&self, row: &Self::Row, col: &str) -> Result<Option<String>, RepositoryError>;
     fn get_uuid(&self, row: &Self::Row, col: &str) -> Result<Uuid, RepositoryError>;
-    fn get_opt_uuid(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<Option<Uuid>, RepositoryError>;
-    fn get_datetime(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<DateTime<Utc>, RepositoryError>;
+    fn get_opt_uuid(&self, row: &Self::Row, col: &str) -> Result<Option<Uuid>, RepositoryError>;
+    fn get_datetime(&self, row: &Self::Row, col: &str) -> Result<DateTime<Utc>, RepositoryError>;
     fn get_opt_datetime(
         &self,
         row: &Self::Row,
@@ -33,17 +21,9 @@ pub trait RowExtractor: Send + Sync + Default + 'static {
     fn get_bool(&self, row: &Self::Row, col: &str) -> Result<bool, RepositoryError>;
     fn get_i32(&self, row: &Self::Row, col: &str) -> Result<i32, RepositoryError>;
     fn get_i64(&self, row: &Self::Row, col: &str) -> Result<i64, RepositoryError>;
-    fn get_opt_i64(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<Option<i64>, RepositoryError>;
+    fn get_opt_i64(&self, row: &Self::Row, col: &str) -> Result<Option<i64>, RepositoryError>;
     fn get_f64(&self, row: &Self::Row, col: &str) -> Result<f64, RepositoryError>;
-    fn get_opt_f64(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<Option<f64>, RepositoryError>;
+    fn get_opt_f64(&self, row: &Self::Row, col: &str) -> Result<Option<f64>, RepositoryError>;
     fn get_json_value(
         &self,
         row: &Self::Row,
@@ -64,18 +44,15 @@ pub trait RowExtractor: Send + Sync + Default + 'static {
         row: &Self::Row,
         col: &str,
     ) -> Result<Option<HashSet<String>>, RepositoryError>;
-    fn get_string_vec(
-        &self,
-        row: &Self::Row,
-        col: &str,
-    ) -> Result<Vec<String>, RepositoryError>;
+    fn get_string_vec(&self, row: &Self::Row, col: &str) -> Result<Vec<String>, RepositoryError>;
     fn get_opt_string_vec(
         &self,
         row: &Self::Row,
         col: &str,
     ) -> Result<Option<Vec<String>>, RepositoryError>;
     fn get_bytes(&self, row: &Self::Row, col: &str) -> Result<Vec<u8>, RepositoryError>;
-    fn get_opt_bytes(&self, row: &Self::Row, col: &str) -> Result<Option<Vec<u8>>, RepositoryError>;
+    fn get_opt_bytes(&self, row: &Self::Row, col: &str)
+        -> Result<Option<Vec<u8>>, RepositoryError>;
 
     fn get_json<T: DeserializeOwned>(
         &self,

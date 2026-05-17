@@ -19,8 +19,8 @@ pub fn expand_include_migrations(path_lit: proc_macro::TokenStream) -> proc_macr
     };
 
     // Resolve relative to the crate that invoked the macro (CARGO_MANIFEST_DIR)
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR must be set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo");
 
     let migrations_dir = PathBuf::from(&manifest_dir).join(&path_str);
 
@@ -34,12 +34,7 @@ pub fn expand_include_migrations(path_lit: proc_macro::TokenStream) -> proc_macr
             )
         })
         .filter_map(|res| res.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|x| x == "sql")
-                .unwrap_or(false)
-        })
+        .filter(|e| e.path().extension().map(|x| x == "sql").unwrap_or(false))
         .filter_map(|entry| {
             let path = entry.path();
             let stem = path
@@ -80,10 +75,7 @@ fn parse_version(stem: &str) -> Option<u64> {
         .or_else(|| stem.strip_prefix('M'))
         .unwrap_or(stem);
 
-    let prefix = s
-        .split(|c: char| c == '_' || c == '-')
-        .next()
-        .unwrap_or(s);
+    let prefix = s.split(|c: char| c == '_' || c == '-').next().unwrap_or(s);
 
     prefix.parse::<u64>().ok()
 }

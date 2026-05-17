@@ -3,7 +3,7 @@
 //! This module is the implementation behind the `migrate!` macro.
 //! Developers never need to interact with it directly.
 
-use crate::{Dialect, Transpiler, TranspileError};
+use crate::{Dialect, TranspileError, Transpiler};
 
 /// Error type for the migration runner.
 #[derive(Debug)]
@@ -26,7 +26,9 @@ impl std::fmt::Display for RunnerError {
 impl std::error::Error for RunnerError {}
 
 impl From<TranspileError> for RunnerError {
-    fn from(e: TranspileError) -> Self { Self::Transpile(e) }
+    fn from(e: TranspileError) -> Self {
+        Self::Transpile(e)
+    }
 }
 
 /// A single applied migration record tracked in `schema_migrations`.
@@ -44,8 +46,14 @@ pub struct AppliedMigration {
 /// - `001_create_users`   → 1
 /// - `20240101_init`      → 20240101
 pub fn parse_version(stem: &str) -> Result<u64, RunnerError> {
-    let s = stem.strip_prefix('v').or_else(|| stem.strip_prefix('V')).unwrap_or(stem);
-    let s = s.strip_prefix('m').or_else(|| s.strip_prefix('M')).unwrap_or(s);
+    let s = stem
+        .strip_prefix('v')
+        .or_else(|| stem.strip_prefix('V'))
+        .unwrap_or(stem);
+    let s = s
+        .strip_prefix('m')
+        .or_else(|| s.strip_prefix('M'))
+        .unwrap_or(s);
     let prefix = s.split(|c: char| c == '_' || c == '-').next().unwrap_or(s);
     prefix
         .parse::<u64>()
@@ -134,12 +142,11 @@ where
         let out = transpiler.transpile(canonical_sql)?;
         runner.execute_sql(pool, &out.sql).await?;
 
-        let description = stem
-            .splitn(2, "__")
-            .nth(1)
-            .unwrap_or(stem);
+        let description = stem.splitn(2, "__").nth(1).unwrap_or(stem);
         let checksum = compute_checksum(canonical_sql);
-        runner.record_applied(pool, version, description, &checksum).await?;
+        runner
+            .record_applied(pool, version, description, &checksum)
+            .await?;
     }
     Ok(())
 }
@@ -169,19 +176,20 @@ impl DialectRunner for SqliteRunner {
         Ok(())
     }
 
-    async fn load_applied(&self, pool: &sqlx::SqlitePool) -> Result<Vec<AppliedMigration>, RunnerError> {
+    async fn load_applied(
+        &self,
+        pool: &sqlx::SqlitePool,
+    ) -> Result<Vec<AppliedMigration>, RunnerError> {
         use sqlx::Row;
-        let rows = sqlx::query(
-            "SELECT version, checksum FROM schema_migrations ORDER BY version",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| RunnerError::Database(e.to_string()))?;
+        let rows = sqlx::query("SELECT version, checksum FROM schema_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| RunnerError::Database(e.to_string()))?;
 
         Ok(rows
             .iter()
             .map(|r| AppliedMigration {
-                version:  r.try_get::<i64, _>(0).unwrap_or(0) as u64,
+                version: r.try_get::<i64, _>(0).unwrap_or(0) as u64,
                 checksum: r.try_get::<String, _>(1).unwrap_or_default(),
             })
             .collect())
@@ -191,7 +199,9 @@ impl DialectRunner for SqliteRunner {
         // SQLite requires splitting on `;` for multi-statement batches
         for stmt in sql.split(';') {
             let stmt = stmt.trim();
-            if stmt.is_empty() { continue; }
+            if stmt.is_empty() {
+                continue;
+            }
             sqlx::query(stmt)
                 .execute(pool)
                 .await
@@ -245,19 +255,20 @@ impl DialectRunner for PostgresRunner {
         Ok(())
     }
 
-    async fn load_applied(&self, pool: &sqlx::PgPool) -> Result<Vec<AppliedMigration>, RunnerError> {
+    async fn load_applied(
+        &self,
+        pool: &sqlx::PgPool,
+    ) -> Result<Vec<AppliedMigration>, RunnerError> {
         use sqlx::Row;
-        let rows = sqlx::query(
-            "SELECT version, checksum FROM schema_migrations ORDER BY version",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| RunnerError::Database(e.to_string()))?;
+        let rows = sqlx::query("SELECT version, checksum FROM schema_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| RunnerError::Database(e.to_string()))?;
 
         Ok(rows
             .iter()
             .map(|r| AppliedMigration {
-                version:  r.try_get::<i64, _>(0).unwrap_or(0) as u64,
+                version: r.try_get::<i64, _>(0).unwrap_or(0) as u64,
                 checksum: r.try_get::<String, _>(1).unwrap_or_default(),
             })
             .collect())
@@ -316,19 +327,20 @@ impl DialectRunner for MySqlRunner {
         Ok(())
     }
 
-    async fn load_applied(&self, pool: &sqlx::MySqlPool) -> Result<Vec<AppliedMigration>, RunnerError> {
+    async fn load_applied(
+        &self,
+        pool: &sqlx::MySqlPool,
+    ) -> Result<Vec<AppliedMigration>, RunnerError> {
         use sqlx::Row;
-        let rows = sqlx::query(
-            "SELECT version, checksum FROM schema_migrations ORDER BY version",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| RunnerError::Database(e.to_string()))?;
+        let rows = sqlx::query("SELECT version, checksum FROM schema_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| RunnerError::Database(e.to_string()))?;
 
         Ok(rows
             .iter()
             .map(|r| AppliedMigration {
-                version:  r.try_get::<i64, _>(0).unwrap_or(0) as u64,
+                version: r.try_get::<i64, _>(0).unwrap_or(0) as u64,
                 checksum: r.try_get::<String, _>(1).unwrap_or_default(),
             })
             .collect())

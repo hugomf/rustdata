@@ -27,20 +27,20 @@
 //! 5. Only migrations not yet recorded in that table are executed.
 
 pub mod dialects;
-pub mod transpiler;
 pub mod runner;
+pub mod transpiler;
 
 pub use dialects::Dialect;
-pub use transpiler::{Transpiler, TranspileOutput, TranspileError};
 pub use runner::RunnerError;
+pub use transpiler::{TranspileError, TranspileOutput, Transpiler};
 
 // Re-export dialect-specific runners so the macro can call them.
-#[cfg(feature = "sqlite")]
-pub use runner::run_sqlite;
-#[cfg(feature = "postgres")]
-pub use runner::run_postgres;
 #[cfg(feature = "mysql")]
 pub use runner::run_mysql;
+#[cfg(feature = "postgres")]
+pub use runner::run_postgres;
+#[cfg(feature = "sqlite")]
+pub use runner::run_sqlite;
 
 /// Apply pending migrations from the given folder to the pool.
 ///
@@ -79,8 +79,7 @@ macro_rules! migrate {
         // `include_migrations!` is a proc-macro that glob-expands at compile
         // time and embeds every *.sql file as a &'static str pair.
         // It sorts entries by their numeric version prefix automatically.
-        const MIGRATIONS: &[(&str, &str)] =
-            rustdata_macros::include_migrations!($path);
+        const MIGRATIONS: &[(&str, &str)] = rustdata_macros::include_migrations!($path);
 
         $crate::__run_migrations($pool, MIGRATIONS)
     }};
@@ -114,7 +113,8 @@ impl __PoolDispatch for sqlx::SqlitePool {
     fn __dispatch<'a>(
         &'a self,
         entries: &'static [(&'static str, &'static str)],
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>>
+    {
         Box::pin(run_sqlite(self, entries))
     }
 }
@@ -124,7 +124,8 @@ impl __PoolDispatch for sqlx::PgPool {
     fn __dispatch<'a>(
         &'a self,
         entries: &'static [(&'static str, &'static str)],
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>>
+    {
         Box::pin(run_postgres(self, entries))
     }
 }
@@ -134,7 +135,8 @@ impl __PoolDispatch for sqlx::MySqlPool {
     fn __dispatch<'a>(
         &'a self,
         entries: &'static [(&'static str, &'static str)],
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RunnerError>> + Send + 'a>>
+    {
         Box::pin(run_mysql(self, entries))
     }
 }

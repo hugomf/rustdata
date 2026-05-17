@@ -77,7 +77,7 @@ pub use error::{DbError, RepositoryError};
 pub use pagination::{Direction, Filter, FilterOperator, Order, Page, Pageable, Sort};
 pub use projection::Projection;
 pub use repo::CrudRepository;
-pub use row_extractable::{QueryRepository, RowExtractable, bind_values};
+pub use row_extractable::{bind_values, QueryRepository, RowExtractable};
 pub use soft_delete::SoftDeletable;
 pub use specification::{AndSpec, NotSpec, OrSpec, Predicate, Specification, SqlValue, ToSqlValue};
 pub use sql_type::{SqlBind, SqlExtract};

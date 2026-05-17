@@ -48,12 +48,14 @@ impl From<sqlx::Error> for RepositoryError {
             },
             sqlx::Error::Database(ref db_err) => {
                 let code = db_err.code().map(|c| c.to_string());
-                let msg  = db_err.message().to_lowercase();
+                let msg = db_err.message().to_lowercase();
 
                 // Unique constraint — checked by numeric code where available,
                 // then by message text for SQLite (which has no numeric codes).
-                if matches!(code.as_deref(), Some("23505") | Some("1062") | Some("1555") | Some("2067"))
-                    || msg.contains("unique constraint")
+                if matches!(
+                    code.as_deref(),
+                    Some("23505") | Some("1062") | Some("1555") | Some("2067")
+                ) || msg.contains("unique constraint")
                     || msg.contains("duplicate entry")
                     || msg.contains("unique_violation")
                 {

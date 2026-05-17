@@ -1,9 +1,9 @@
+use chrono::{DateTime, Utc};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use chrono::{DateTime, Utc};
 
 use crate::{
-    backend::{Backend, DbOf, ExOf, AdOf},
+    backend::{AdOf, Backend, DbOf, ExOf},
     bind::BindAdapter,
     descriptor::RowExtractor,
     dialect::SqlDialect,
@@ -23,7 +23,11 @@ pub enum MigrationError {
     #[error("invalid migration file: {0}")]
     InvalidFile(String),
     #[error("migration {version} checksum mismatch: expected {expected}, got {actual}")]
-    ChecksumMismatch { version: u64, expected: String, actual: String },
+    ChecksumMismatch {
+        version: u64,
+        expected: String,
+        actual: String,
+    },
     #[error("missing migration file for version {0}")]
     MissingMigrationFile(u64),
     #[error("database error: {0}")]
@@ -157,8 +161,8 @@ where
     }
 
     fn read_migration_files(&self) -> Result<Vec<Migration>, MigrationError> {
-        use sha2::{Digest, Sha256};
         use hex;
+        use sha2::{Digest, Sha256};
         use std::fs;
 
         let mut migrations = Vec::new();
@@ -169,8 +173,9 @@ where
             let entry = entry.map_err(|e| MigrationError::InvalidFile(e.to_string()))?;
             let path = entry.path();
             if path.extension().map(|ext| ext == "sql").unwrap_or(false) {
-                let filename = path.file_stem().and_then(|s| s.to_str())
-                    .ok_or_else(|| MigrationError::InvalidFile(format!("Invalid filename: {:?}", path)))?;
+                let filename = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+                    MigrationError::InvalidFile(format!("Invalid filename: {:?}", path))
+                })?;
 
                 if let Some((version, description)) = Self::parse_sqlx_filename(filename) {
                     let sql = fs::read_to_string(&path)
@@ -194,7 +199,7 @@ where
     }
 
     async fn get_applied_migrations(&self) -> Result<Vec<Migration>, MigrationError> {
-        let ext = <ExOf::<B> as Default>::default();
+        let ext = <ExOf<B> as Default>::default();
         let sql = format!(
             "SELECT version, description, checksum, applied_at FROM {} ORDER BY version",
             self.table_name
@@ -206,13 +211,17 @@ where
 
         let mut migrations = Vec::new();
         for row in &rows {
-            let version = ext.get_i64(row, "version")
+            let version = ext
+                .get_i64(row, "version")
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
-            let description = ext.get_str(row, "description")
+            let description = ext
+                .get_str(row, "description")
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
-            let checksum = ext.get_str(row, "checksum")
+            let checksum = ext
+                .get_str(row, "checksum")
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
-            let applied_at = ext.get_datetime(row, "applied_at")
+            let applied_at = ext
+                .get_datetime(row, "applied_at")
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
 
             migrations.push(Migration {
@@ -228,7 +237,8 @@ where
 
     fn validate(&self, files: &[Migration], applied: &[Migration]) -> Result<(), MigrationError> {
         for applied_migration in applied {
-            let file = files.iter()
+            let file = files
+                .iter()
                 .find(|f| f.version == applied_migration.version)
                 .ok_or_else(|| MigrationError::MissingMigrationFile(applied_migration.version))?;
             if file.checksum != applied_migration.checksum {
@@ -260,7 +270,8 @@ where
         query = <AdOf<B> as BindAdapter<DbOf<B>>>::bind_int(query, migration.version as i64);
         query = <AdOf<B> as BindAdapter<DbOf<B>>>::bind_str(query, &migration.description);
         query = <AdOf<B> as BindAdapter<DbOf<B>>>::bind_str(query, &migration.checksum);
-        query.execute(self.pool)
+        query
+            .execute(self.pool)
             .await
             .map_err(|e| MigrationError::Database(e.to_string()))?;
         Ok(())
