@@ -414,13 +414,13 @@ rustdata_migrations::__run_migrations(&pool, MIGRATIONS).await?;
 
 ```mermaid
 flowchart TD
-    call["__run_migrations(&pool, MIGRATIONS)"]
+    invoke["__run_migrations(&amp;pool, MIGRATIONS)"]
     disp{"pool type\n(sealed __PoolDispatch)"}
     sq["run_sqlite"]
     pg["run_postgres"]
     my["run_mysql"]
 
-    call --> disp
+    invoke --> disp
     disp -- SqlitePool --> sq
     disp -- PgPool     --> pg
     disp -- MySqlPool  --> my
@@ -447,7 +447,7 @@ sequenceDiagram
             Runner->>Runner: Transpiler.transpile(sql, dialect)
             Runner->>DB: BEGIN TRANSACTION
             Runner->>DB: Execute transpiled DDL
-            Runner->>DB: INSERT INTO schema_migrations<br/>(version, checksum, applied_at)
+            Runner->>DB: INSERT INTO schema_migrations (version, checksum, applied_at)
             Runner->>DB: COMMIT
         end
     end
@@ -514,7 +514,7 @@ sequenceDiagram
     Cache-->>Repo: &str
 
     Repo->>Desc: bind_insert(query, &user)
-    Desc->>Bind: SqlBind::sql_bind per field<br/>(Uuid · String · DateTime · bool …)
+    Desc->>Bind: SqlBind::sql_bind per field (Uuid, String, DateTime, bool ...)
     Bind-->>Repo: bound query
 
     Repo->>Pool: execute(query)
