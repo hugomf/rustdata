@@ -92,43 +92,6 @@ git push origin --follow-tags
 - Tag message: `Release v0.2.0`
 - Pushed with `--follow-tags` so both the annotated tag and its commit are on the remote
 - Verified via `git tag -l | grep v0.2.0`
-```
-cargo set-version --workspace X.Y.Z
-```
-
-This rewrites the `version =` field in every workspace member's `Cargo.toml`:
-
-```
-crates/rustdata-core/Cargo.toml       →  version = "0.2.0"
-crates/rustdata-migrations/Cargo.toml  →  version = "0.2.0"
-crates/rustdata-macros/Cargo.toml      →  version = "0.2.0"
-```
-
-### How the next version is computed
-
-The bump type (`patch` / `minor` / `major`) is applied to the current version automatically:
-
-- **patch** — last segment +1: `0.1.0` → `0.1.1`
-- **minor** — middle segment +1, patch reset: `0.1.0` → `0.2.0`
-- **major** — first segment +1, others reset: `0.1.0` → `1.0.0`
-
-Runs in GitHub Actions via `actions/github-script@v7`, locally via `make bump-version VER=0.2.0`.
-
-### How git tags are created
-
-After version bump, an annotated tag is created and pushed:
-
-```bash
-TAG="v0.2.0"
-git commit -am "release: v0.2.0"              # commit the version + changelog changes
-git tag -a "$TAG" -m "Release $TAG"           # local annotated tag
-git push origin --follow-tags                  # pushes commit + tag to remote
-```
-
-- Tag name: `v<version>` pointing to the version-bump commit
-- Tag message: `Release v0.2.0`
-- Pushed with `--follow-tags` so the annotated tag and its commit are both on the remote
-- Verified via `git tag -l | grep v0.2.0`
 
 ---
 
@@ -164,7 +127,6 @@ Choose `patch`, `minor`, or `major`, or leave it blank and fill `version` to pin
 ```
 
 **Key points:**
-
 
 - `cargo publish` uses `--allow-dirty` because the working tree has uncommitted changes from `set-version` + `changelog`, both of which are captured in the commit pushed at step 2.
 - `publish --dry-run` in `validate` runs only on `rustdata-macros` (the leaf crate — it has no workspace dependencies, so it can be fully validated locally). `rustdata-migrations` and `rustdata-core` are validated by `cargo test` which already runs in the same job.
