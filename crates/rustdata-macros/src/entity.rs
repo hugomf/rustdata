@@ -257,8 +257,16 @@ pub fn expand_derive(input: DeriveInput) -> TokenStream {
                 <#struct_name as ::rustdata_core::descriptor::EntityDescriptor>::from_row(row, extractor)
             }
         }
-        pub type #repo_name<BA> =
-            ::rustdata_core::repo::CrudRepository<BA, #struct_name>;
+        // --- Concrete repo type alias — pinned to the active backend ---
+        //
+        // `DefaultBackend` is a type alias defined in `rustdata-core` and
+        // resolved there using its own feature flags (sqlite/postgres/mysql).
+        // We reference it here so the proc-macro crate never needs backend
+        // features of its own — the feature gate lives where it belongs.
+        pub type #repo_name = ::rustdata_core::repo::CrudRepository<
+            ::rustdata_core::DefaultBackend,
+            #struct_name,
+        >;
     };
     result
 }

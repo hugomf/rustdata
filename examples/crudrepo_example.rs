@@ -1,100 +1,101 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
-use rustdata_core::{CrudRepository, backends::Sqlite, Entity};
-use rustdata_migrations::{Transpiler, Dialect, TranspileOutput};
-use serde::{Deserialize, Serialize};
+//! # CrudRepository example
+//!
+//! Demonstrates the full lifecycle of a rustdata entity:
+//! migrations → insert → find → update → delete.
+//!
+//! ## What you write as a developer
+//!
+//!  1. SQL files in `migrations/`          — canonical, dialect-agnostic
+//!  2. `#[derive(Entity)]` on your struct  — generates the repo type alias
+//!  3. `migrate!(&pool)`                   — one call, everything applied
+//!  4. `UserRepo::new(pool)`               — no generics, no backend import
 
-// Define our User entity using the Entity macro
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+use rustdata_core::prelude::*;
+use sqlx::sqlite::SqlitePoolOptions;
+
+// ── 1. Entity definition ─────────────────────────────────────────────────────
+//
+// `#[derive(Entity)]` generates:
+//   • EntityDescriptor  — column metadata + bind/extract logic
+//   • UserRepo          — a concrete type alias pinned to the active backend
+//                         (Sqlite here, because `features = ["sqlite"]`)
+//
+// No `CrudRepository<Sqlite, User>` needed anywhere.
+
+#[derive(Debug, Clone, Entity)]
 #[entity(table = "users", order_by = "created_at DESC")]
 struct User {
     #[entity(id)]
     id: uuid::Uuid,
-    
-    #[entity(column = "username")]
+
     username: String,
-    
-    #[entity(column = "email")]
+
     email: String,
-    
-    #[entity(auto_generated)]
+
+    #[entity(auto_generated)]   // excluded from INSERT / UPDATE — the DB sets it
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Run migrations using the transpiler to convert canonical SQL to SQLite
-async fn run_migrations(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-    let transpiler = Transpiler::new(Dialect::Sqlite);
-    
-    // Define migration SQL in canonical (Postgres-like) format
-    let migrations: Vec<&str> = vec![
-        // Migration 1: Create users table
-        r#"
--- @migration V1
--- @description Create users table
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    username TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-"#,
-    ];
-    
-    for migration in migrations {
-        // Transpile to SQLite dialect
-        let TranspileOutput { sql, .. } = transpiler.transpile(migration)?;
-        
-        // Execute the transpiled SQL
-        sqlx::query(&sql).execute(pool).await?;
-        println!("Migration executed successfully");
-    }
-    
-    Ok(())
-}
+// ── 2. Migrations live in `examples/migrations/` as plain SQL files ──────────
+//
+// examples/migrations/v1__create_users.sql:
+//
+//   CREATE TABLE users (
+//       id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+//       username    VARCHAR(255) NOT NULL UNIQUE,
+//       email       VARCHAR(255) NOT NULL UNIQUE,
+//       created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+//   );
+//
+// The framework transpiles `UUID` → `TEXT`, `TIMESTAMPTZ` → `TEXT`,
+// `gen_random_uuid()` → SQLite-compatible form, etc. automatically.
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create in-memory SQLite database
+    // ── 3. Connect ────────────────────────────────────────────────────────────
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect("sqlite::memory:")
         .await?;
-    
-    // Run migrations to create the users table
-    run_migrations(&pool).await?;
-    
-    // Create repository instance
-    let user_repo = CrudRepository::<Sqlite, User>::new(pool);
 
-    // Create a new user
-    let new_user = User {
-        id: uuid::Uuid::new_v4(),
-        username: "john_doe".to_string(),
-        email: "john@example.com".to_string(),
+    // ── 4. Migrate — dialect inferred from pool type, no arguments needed ─────
+    rustdata_migrations::migrate!(&pool, "examples/migrations").await?;
+    println!("✓ Migrations applied");
+
+    // ── 5. Create the repository — just the generated alias, no generics ──────
+    let repo = UserRepo::new(pool);
+
+    // ── Insert ────────────────────────────────────────────────────────────────
+    let user = User {
+        id:         uuid::Uuid::new_v4(),
+        username:   "john_doe".into(),
+        email:      "john@example.com".into(),
         created_at: chrono::Utc::now(),
     };
+    repo.save(&user).await?;
+    println!("✓ Inserted: {} <{}>", user.username, user.email);
 
-    // Insert user
-    let inserted = user_repo.insert(new_user).await?;
-    println!("Created user: {:?}", inserted);
-
-    // Find user by ID
-    if let Some(found_user) = user_repo.find_by_id(inserted.id.clone()).await? {
-        println!("Found user: {:?}", found_user);
+    // ── Find by id ────────────────────────────────────────────────────────────
+    if let Some(found) = repo.find_by_id(&user.id).await? {
+        println!("✓ Found:    {} <{}>", found.username, found.email);
     }
 
-    // Update user
-    let mut updated_user = inserted.clone();
-    updated_user.email = "john.doe@example.com".to_string();
-    let updated = user_repo.update(updated_user).await?;
-    println!("Updated user: {:?}", updated);
+    // ── Update ────────────────────────────────────────────────────────────────
+    let mut updated = user.clone();
+    updated.email = "john.doe@example.com".into();
+    repo.save(&updated).await?;
+    println!("✓ Updated email → {}", updated.email);
 
-    // Find all users
-    let all_users = user_repo.find_all().await?;
-    println!("All users: {:?}", all_users);
+    // ── Find all ──────────────────────────────────────────────────────────────
+    let all = repo.find_all(rustdata_core::pagination::Pageable::default()).await?;
+    println!("✓ find_all: {} user(s)", all.content.len());
 
-    // Delete user
-    user_repo.delete(&updated.id).await?;
-    println!("User deleted");
+    // ── Delete ────────────────────────────────────────────────────────────────
+    repo.delete_by_id(&user.id).await?;
+    let gone = repo.find_by_id(&user.id).await?;
+    assert!(gone.is_none(), "user should be deleted");
+    println!("✓ Deleted — find_by_id returns None");
 
+    println!("\n✅  Done.");
     Ok(())
 }

@@ -14,12 +14,12 @@ serde_json = { version = "1" }
 thiserror = { version = "2" }
 rustdata-macros = { path = "../rustdata-macros" }
 sha2 = { workspace = true, optional = true }
-hex = { workspace = true, optional = true }
+hex  = { workspace = true, optional = true }
 walkdir = { version = "2", optional = true }
 
 [features]
-default = ["postgres"]
+default  = ["postgres"]
 postgres = ["sqlx/postgres"]
-sqlite = ["sqlx/sqlite"]
-mysql = ["sqlx/mysql"]
+sqlite   = ["sqlx/sqlite"]
+mysql    = ["sqlx/mysql"]
 migration = ["dep:sha2", "dep:hex", "dep:walkdir"]

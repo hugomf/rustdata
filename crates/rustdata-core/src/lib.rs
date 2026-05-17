@@ -45,6 +45,22 @@ pub mod sql_type;
 pub mod backends;
 #[cfg(feature = "migration")]
 pub mod migration;
+
+// ── DefaultBackend ────────────────────────────────────────────────────────────
+//
+// A concrete backend type alias resolved from the active Cargo feature.
+// This is what the `#[derive(Entity)]` macro uses for the generated `*Repo`
+// type alias, keeping feature-gate logic inside rustdata-core (where the
+// features are actually declared) rather than inside the proc-macro crate
+// (which has no backend features and would always pick the generic fallback).
+#[cfg(feature = "sqlite")]
+pub type DefaultBackend = backends::Sqlite;
+
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+pub type DefaultBackend = backends::Postgres;
+
+#[cfg(all(feature = "mysql", not(feature = "sqlite"), not(feature = "postgres")))]
+pub type DefaultBackend = backends::MySql;
 pub mod repo;
 pub mod row_extractable;
 

@@ -3,7 +3,22 @@ name = "rustdata-migrations"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Generic SQL transpilation engine — Dialect enum, type mappings, and multi-pass dialect transpiler"
+description = "Generic SQL transpilation engine — Dialect enum, type mappings, multi-pass transpiler, and zero-boilerplate migrate! macro"
 
 [lib]
 name = "rustdata_migrations"
+
+[dependencies]
+rustdata-macros = { path = "../rustdata-macros" }
+sha2 = { workspace = true }
+hex  = { workspace = true }
+async-trait = "0.1"
+
+# sqlx — only the drivers the consumer actually uses need to be compiled
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio"] }
+
+[features]
+default = []
+sqlite   = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres"]
+mysql    = ["sqlx/mysql"]
