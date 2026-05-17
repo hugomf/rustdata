@@ -22,7 +22,7 @@ on:
     inputs:
       bump:
         description: "Semver bump type"
-        required: true
+        required: false
         type: choice
         options: [patch, minor, major]
         default: patch
@@ -120,26 +120,23 @@ jobs:
             const m = tm.match(/^version\s*=\s*"([^"]+)"/m);
             if (!m) core.setFailed('Could not read current version');
             const current = m[1];
-            const versionOverride = core.getInput('version');
+            const versionOverride = process.env.RELEASE_VERSION || '';
             if (versionOverride) {
               core.setOutput('current', current);
               core.setOutput('next', versionOverride);
               core.setOutput('next_short', 'v' + versionOverride);
               core.info(`Version override: forcing ${current} → ${versionOverride}`);
             } else {
-              const bumpType = core.getInput('bump') || 'patch';
+              const bumpType = process.env.BUMP_TYPE || 'patch';
               const next = bump(current, bumpType);
               core.setOutput('current', current);
               core.setOutput('next', next);
               core.setOutput('next_short', 'v' + next);
               core.info(`Bumping ${current} → ${next} (type=${bumpType})`);
             }
-        inputs:
-          bump:
-            required: false
-            default: patch
-          version:
-            required: false
+        env:
+          BUMP_TYPE: ${{ github.event.inputs.bump || 'patch' }}
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
 
       - name: Bump version in all member crates
         run: |
