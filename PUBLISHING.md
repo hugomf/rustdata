@@ -13,16 +13,38 @@ rustdata-macros  →  rustdata-migrations  →  rustdata-core
 ## Prerequisites
 
 - A [crates.io](https://crates.io) account.
-- A valid [`CARGO_REGISTRY_TOKEN`](https://crates.io/settings/tokens) in `~/.cargo/credentials.toml` or exported as an environment variable.
-- Each published crate's `Cargo.toml` `[package]` section must contain at minimum `name`, `version`, `edition`, `license`, `description`, `homepage`, `repository`, `keywords`, and `categories`.
-- `README.md` must contain useful crate-level docs (crates.io renders it).
+- A valid [`CARGO_REGISTRY_TOKEN`](https://crates.io/settings/tokens) stored as a GitHub Actions secret (repo → Settings → Secrets and variables → Actions).
 
 ---
 
-## `scripts/release.sh` (full automated release)
+## Option 1 — GitHub Actions (recommended)
 
-`scripts/release.sh` is the single source of truth for the release workflow.
-It calls the Makefile targets in the order they need to run.
+The CI pipeline is defined in `.github/workflows/release.yml`. It requires no local tooling beyond git.
+
+### Trigger a release
+
+From GitHub → **Actions** → **rustdata-release** → **Run workflow**:
+
+| Field | Value |
+|---|---|
+| **bump** | `patch` / `minor` / `major` |
+
+This runs the **release** job (manual dispatch only, after `validate` passes):
+
+1. **Compute next version** — reads `crates/rustdata-core/Cargo.toml`, bumps `major.minor.patch`
+2. **Bump workspace version** — `cargo set-version --workspace $VER`
+3. **Update `CHANGELOG.md`** — injects a `## [x.y.z] - YYYY-MM-DD` section
+4. **Git commit + tag + push** — annotated tag (not signed) pushed to `origin` and `rustdata` remotes
+5. **`cargo publish`** — all 3 crates in dependency order (`macros` → `migrations` → `core`), using `--allow-dirty`
+6. **Create GitHub Release** — annotated release from the tag, body = new changelog section
+
+The **validate** job runs automatically on every push/PR to `master` and runs `fmt` + `clippy` + `test` + `cargo publish --dry-run` (all 3 crates).
+
+---
+
+## Option 2 — `scripts/release.sh` (local)
+
+`scripts/release.sh` is the local full-automation release script. It calls the Makefile targets in sequence.
 
 ```bash
 # Dry-run — quality gate + dry-run publish, no files modified
@@ -38,7 +60,7 @@ It calls the Makefile targets in the order they need to run.
 ./scripts/release.sh --bump patch --yes
 ```
 
-What it does step by step:
+What it does:
 
 | Step | Command | Description |
 |---|---|---|
@@ -46,31 +68,29 @@ What it does step by step:
 | 2 | `make publish-dry-run` | `cargo publish --dry-run` for all 3 crates in dependency order |
 | 3 | `make bump-version VER=…` | `cargo set-version --workspace` to synchronise all 3 crates |
 | 4 | `make changelog` | Appends `## [x.y.z] - YYYY-MM-DD` to `CHANGELOG.md` if not already present |
-| 5 | `make tag` | `git commit` + GPG-signed `git tag` + `git push --follow-tags` to `origin` and `rustdata` remotes |
+| 5 | `make tag` | `git commit` + **GPG-signed** `git tag` + `git push --follow-tags` to `origin` and `rustdata` remotes |
 | 6 | `make publish-upload` | `cargo publish` for all 3 crates in dependency order |
 
 Requires `python3`, `git` (with GPG/SSH tag signing), and `cargo-set-version` (`cargo install cargo-set-version`).
 
 ---
 
-## Makefile targets (individual steps)
-
-Run any step individually if you want more control:
+## Option 3 — `make` targets (manual, step-by-step)
 
 ```bash
-# 1. Format check + lint + tests
+# 1. Quality gate
 make check
 
-# 2. Preview .crate files without uploading
+# 2. Dry-run publish (previews .crate files, does not upload)
 make publish-dry-run
 
-# 3. Bump workspace version (uses cargo-set-version)
+# 3. Bump workspace version
 make bump-version VER=0.2.0
 
-# 4. Add a new [x.y.z] section to CHANGELOG.md
+# 4. Add [x.y.z] section to CHANGELOG.md
 make changelog
 
-# 5. Git commit + signed tag + push
+# 5. Commit + GPG-signed tag + push
 make tag
 
 # 6. Upload to crates.io (all 3 crates in order)
@@ -79,16 +99,10 @@ make publish-upload
 
 ### `make publish`
 
-Runs the full pipeline in one Make command:
+Runs the full local pipeline (check → changelog → publish-dry-run → tag → publish-upload):
 
 ```bash
-make publish   # runs: check → changelog → publish-dry-run → tag → publish-upload
-```
-
-Note that `make publish` does *not* include `make publish-dry-run`; add it as a pre-check manually if desired:
-
-```bash
-make check && make publish-dry-run && make publish
+make publish
 ```
 
 ---
@@ -105,6 +119,6 @@ cargo search rustdata-migrations
 
 ## Post-release checklist
 
-- [ ] Confirm all 3 crates appear on crates.io with the correct version.
-- [ ] Verify the GitHub release tag created by `make tag` is live.
+- [ ] Verify all 3 crates appear on crates.io with the correct version.
+- [ ] Confirm the GitHub Release (created by CI or `make tag`) is live.
 - [ ] Announce in project channels / discussions.
