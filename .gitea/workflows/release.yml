@@ -9,7 +9,9 @@
 #   release   — manual trigger: bumps version, tags git, publishes to crates.io
 #
 # Required Gitea Secrets (Settings → Actions → Secrets):
-#   CARGO_REGISTRY_TOKEN    — crates.io API token (NOT a GitHub token)
+#   CARGO_REGISTRY_TOKEN  — crates.io API token (NOT a GitHub token)
+#   GH_MIRROR_TOKEN       — GitHub personal access token with repo write access
+#                            (used to push tag to GitHub mirror via HTTPS)
 
 name: rustdata-release
 
@@ -134,8 +136,8 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "gitea-actions"
+          git config user.email "gitea-actions@noreply.gitea"
 
       - name: Commit + create annotated tag
         run: |
@@ -147,8 +149,11 @@ jobs:
       - name: Push commit + tag to all remotes
         run: |
           TAG="${{ steps.bump-version.outputs.next_short }}"
+          # Push to primary Gitea remote via SSH
           git push origin --follow-tags
-          git push rustdata --follow-tags
+          # Push to GitHub mirror using PAT (no SSH key)
+          git remote add github https://x-access-token:${{ secrets.GH_MIRROR_TOKEN }}@github.com/hugomf/rustdata.git
+          git push github --follow-tags
 
       - name: cargo publish (all crates)
         env:

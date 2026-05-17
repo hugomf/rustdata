@@ -35,6 +35,7 @@ graph LR
 - `CARGO_REGISTRY_TOKEN` stored as an Actions secret:
   - **GitHub**: Settings → Secrets and variables → Actions → New repository secret
   - **Gitea**: Settings → Actions → Secrets → Add Secret
+- For Gitea Actions only: `GH_MIRROR_TOKEN` stored as a Gitea Actions secret — a GitHub PAT with `repo` scope, used to push the release tag to the GitHub mirror via HTTPS (SSH access from Gitea runners to GitHub is not assumed).
 - For local releases: `git` with GPG or SSH tag signing configured, and `cargo-set-version` installed:
 
 ```bash
@@ -93,7 +94,7 @@ The `release` job only runs on **manual dispatch** and only after `validate` pas
 | Compute next version | `actions/github-script@v7` reads the current version from `rustdata-core/Cargo.toml` and applies the selected bump type |
 | Bump workspace version | `cargo set-version --workspace $VER` updates all three member crates |
 | Update `CHANGELOG.md` | Injects a new `## [x.y.z] - YYYY-MM-DD` section below the `# CHANGELOG` header |
-| Commit + tag + push | Commits all changes, creates an **annotated** (not signed) tag `vX.Y.Z`, pushes with `--follow-tags` to `origin` and `rustdata` remotes |
+| Commit + tag + push | Commits all changes, creates an **annotated** (not signed) tag `vX.Y.Z`, pushes with `--follow-tags` to `origin` (GitHub) — the `rustdata` remote (Gitea over SSH) is not pushed from GitHub runners |
 | `cargo publish` | Publishes all three crates in dependency order with `--allow-dirty` |
 | Create GitHub Release | `softprops/action-gh-release@v1` creates a GitHub Release from the tag, with the new changelog section as the release body |
 
@@ -109,7 +110,8 @@ The Gitea pipeline is identical to the GitHub pipeline except:
 
 - Version bumping uses `scripts/bump_version.sh` (Python) instead of `actions/github-script`.
 - The bump type is controlled by the `BUMP_TYPE` environment variable (default: `patch`) rather than a dropdown input.
-- The GitHub Release creation step is present in the YAML but **disabled** (commented out). To enable Gitea release notes, update that step to call the Gitea Releases API.
+- The GitHub Release creation step is absent. To add release notes, call the Gitea Releases API.
+- The tag push step adds the GitHub mirror remote via HTTPS + PAT (`GH_MIRROR_TOKEN`) and pushes there too.
 
 ---
 
