@@ -26,6 +26,10 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      version:
+        description: "Exact version to publish (overrides bump)"
+        required: false
+        type: string
 
 permissions:
   contents: write   # allow tag push
@@ -116,14 +120,26 @@ jobs:
             const m = tm.match(/^version\s*=\s*"([^"]+)"/m);
             if (!m) core.setFailed('Could not read current version');
             const current = m[1];
-            const bumpType = process.env.BUMP_TYPE || 'patch';
-            const next = bump(current, bumpType);
-            core.setOutput('current', current);
-            core.setOutput('next', next);
-            core.setOutput('next_short', 'v' + next);
-            core.info(`Bumping ${current} → ${next} (type=${bumpType})`);
-        env:
-          BUMP_TYPE: ${{ github.event.inputs.bump || 'patch' }}
+            const versionOverride = core.getInput('version');
+            if (versionOverride) {
+              core.setOutput('current', current);
+              core.setOutput('next', versionOverride);
+              core.setOutput('next_short', 'v' + versionOverride);
+              core.info(`Version override: forcing ${current} → ${versionOverride}`);
+            } else {
+              const bumpType = core.getInput('bump') || 'patch';
+              const next = bump(current, bumpType);
+              core.setOutput('current', current);
+              core.setOutput('next', next);
+              core.setOutput('next_short', 'v' + next);
+              core.info(`Bumping ${current} → ${next} (type=${bumpType})`);
+            }
+        inputs:
+          bump:
+            required: false
+            default: patch
+          version:
+            required: false
 
       - name: Bump version in all member crates
         run: |

@@ -57,6 +57,53 @@ crates/rustdata-migrations/Cargo.toml  →  version = "0.2.0"
 crates/rustdata-macros/Cargo.toml      →  version = "0.2.0"
 ```
 
+### Automatic version bump
+
+Version bumps are automatic — choose `patch` / `minor` / `major` and the next version is calculated:
+
+| Bump | Transition |
+|---|---|
+| **patch** | `0.1.0` → `0.1.1`
+| **minor** | `0.1.0` → `0.2.0`
+| **major** | `0.1.0` → `1.0.0`
+
+### Version override (pin an exact version)
+
+Both `workflow_dispatch` inputs have an optional `version` field that, when filled, skips the automatic bump and forces that exact version.
+
+**GitHub Actions**: leave the **bump** dropdown and provide a `version` in the `version` input (e.g. `0.1.1`).
+
+**Manual**: `make bump-version VER=1.0.0` pins any exact version.
+
+The override takes precedence over the `bump` type. Use it when a published version has been yanked, a build needs to be re-issued, or you need to correct the version number.
+
+### How git tags are created
+
+After version bump, an annotated (not signed) tag is created and pushed:
+
+```bash
+TAG="v0.2.0"
+git commit -am "release: v0.2.0"
+git tag -a "$TAG" -m "Release $TAG"
+git push origin --follow-tags
+```
+
+- Tag name: `v<version>` pointing at the version-bump commit
+- Tag message: `Release v0.2.0`
+- Pushed with `--follow-tags` so both the annotated tag and its commit are on the remote
+- Verified via `git tag -l | grep v0.2.0`
+```
+cargo set-version --workspace X.Y.Z
+```
+
+This rewrites the `version =` field in every workspace member's `Cargo.toml`:
+
+```
+crates/rustdata-core/Cargo.toml       →  version = "0.2.0"
+crates/rustdata-migrations/Cargo.toml  →  version = "0.2.0"
+crates/rustdata-macros/Cargo.toml      →  version = "0.2.0"
+```
+
 ### How the next version is computed
 
 The bump type (`patch` / `minor` / `major`) is applied to the current version automatically:
@@ -88,7 +135,7 @@ git push origin --follow-tags                  # pushes commit + tag to remote
 ## 3. Option A — Automatic (GitHub Actions)
 
 **Trigger:** GitHub → **Actions** → `rustdata-release` → **Run workflow**
-Choose `patch`, `minor`, or `major`, then click **Run**.
+Choose `patch`, `minor`, or `major`, or leave it blank and fill `version` to pin an exact release.
 
 ### What it does — step by step
 
@@ -103,6 +150,8 @@ Choose `patch`, `minor`, or `major`, then click **Run**.
 2 ─ release job (manual dispatch only, after validate passes)
    │
    ├── compute next version  (github-script)
+   │     if version input is set → use it directly
+   │     else → apply bump type to current version
    ├── cargo set-version --workspace X.Y.Z          ← updates Cargo.toml in all 3 crates
    ├── update CHANGELOG.md
    ├── git commit -am "release: vX.Y.Z"
@@ -116,9 +165,9 @@ Choose `patch`, `minor`, or `major`, then click **Run**.
 
 **Key points:**
 
+
 - `cargo publish` uses `--allow-dirty` because the working tree has uncommitted changes from `set-version` + `changelog`, both of which are captured in the commit pushed at step 2.
 - `publish --dry-run` in `validate` runs only on `rustdata-macros` (the leaf crate — it has no workspace dependencies, so it can be fully validated locally). `rustdata-migrations` and `rustdata-core` are validated by `cargo test` which already runs in the same job.
-- The `GITHUB_TOKEN` is provided automatically. Only `CARGO_REGISTRY_TOKEN` must be added as a secret.
 
 ---
 
@@ -133,20 +182,21 @@ make check
 # 2. Preview what would be uploaded (no network write)
 make publish-dry-run
 
-# 3. Bump all three crates to a specific version
-make bump-version VER=0.2.0
+# 3. Bump all three crates (automatic semver, or pin exact version)
+make bump-version VER=0.2.0          # automatic: 0.1.0 → 0.2.0  (equivalent to bump=minor)
+make bump-version VER=0.1.1          # exact override: forces 0.1.1 regardless of bump type
 
-# 4. Insert / update the [0.2.0] section in CHANGELOG.md
+# 4. Insert / update the [x.y.z] section in CHANGELOG.md
 make changelog
 
 # 5. Commit + annotated tag + push to origin
 make tag
 
-# 6. Upload all three crates to crates.io
+# 6. Upload all three crates to crates.io in dependency order
 make publish-upload
 ```
 
-Or run the full pipeline with a single version prompt:
+Or run the full pipeline in one shot:
 
 ```bash
 make publish

@@ -17,6 +17,10 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      version:
+        description: "Exact version to publish (overrides bump)"
+        required: false
+        type: string
 
 permissions:
   contents: write  # allow tag push
@@ -46,12 +50,21 @@ jobs:
         id: version
         run: |
           CURRENT="$(grep '^version = ' crates/rustdata-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          bump="${{ github.event.inputs.bump || 'patch' }}"
-          NEXT="$(bash scripts/bump_version.sh "$CURRENT" "$bump")"
-          echo "current=$CURRENT"  >> "$GITHUB_OUTPUT"
-          echo "next=$NEXT"        >> "$GITHUB_OUTPUT"
-          echo "next_short=v$NEXT" >> "$GITHUB_OUTPUT"
-          echo "Bumping $CURRENT -> $NEXT (type=$bump)"
+          VERSION_OVERRIDE="${{ github.event.inputs.version }}"
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            NEXT="$VERSION_OVERRIDE"
+            echo "current=$CURRENT"  >> "$GITHUB_OUTPUT"
+            echo "next=$NEXT"        >> "$GITHUB_OUTPUT"
+            echo "next_short=v$NEXT" >> "$GITHUB_OUTPUT"
+            echo "Version override: forcing $CURRENT -> $NEXT"
+          else
+            bump="${{ github.event.inputs.bump || 'patch' }}"
+            NEXT="$(bash scripts/bump_version.sh "$CURRENT" "$bump")"
+            echo "current=$CURRENT"  >> "$GITHUB_OUTPUT"
+            echo "next=$NEXT"        >> "$GITHUB_OUTPUT"
+            echo "next_short=v$NEXT" >> "$GITHUB_OUTPUT"
+            echo "Bumping $CURRENT -> $NEXT (type=$bump)"
+          fi
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
