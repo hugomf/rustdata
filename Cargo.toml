@@ -3,7 +3,7 @@ members = ["crates/rustdata-core", "crates/rustdata-macros", "crates/rustdata-mi
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Hugo Mendes <contato@hugomendes.dev>"]
 description = "Spring Data-style generic CRUD repository for sqlx with multi-dialect support"
 homepage = "https://github.com/hugomf/rustdata"
