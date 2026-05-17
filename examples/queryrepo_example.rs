@@ -1,147 +1,115 @@
+//! # QueryRepository example
+//!
+//! Demonstrates read-only queries against an existing schema.
+//! `QueryRepository` has no insert/update/delete — it is ideal for views,
+//! aggregations, projections, and read-only service layers.
+//!
+//! ## What you write as a developer
+//!
+//!  1. SQL files in `migrations/`               — canonical SQL
+//!  2. `#[derive(Entity)]` on your read struct  — generates `UserRepo` (CRUD)
+//!                                                 and `RowExtractable` (queries)
+//!  3. `migrate!(&pool)`                         — one call
+//!  4. `QueryRepository::new(pool)` for ad-hoc SQL queries
+
+use rustdata_core::prelude::*;
 use sqlx::sqlite::SqlitePool;
-use rustdata_core::{QueryRepository, backends::Sqlite};
-use rustdata_core::Entity;
-use rustdata_core::SqlValue;
-use serde::{Deserialize, Serialize};
 
-// ─── Entity ───────────────────────────────────────────────
-// The #[derive(Entity)] macro auto-generates:
-//   • EntityDescriptor (columns, bind_insert/update/id, from_row)
-//   • RowExtractable  (extract_row → from_row)  ← enables QueryRepository
+// ── Entity definition ─────────────────────────────────────────────────────────
 //
-// Because the macro also generates RowExtractable for the struct itself,
-// we can pass User directly to QueryRepository<B, User>.
+// `#[derive(Entity)]` also generates `RowExtractable` for the struct, which is
+// the only requirement for using it with `QueryRepository`.
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Entity)]
 #[entity(table = "users", order_by = "created_at DESC")]
 struct User {
     #[entity(id)]
     id: uuid::Uuid,
 
-    #[entity(column = "username")]
     username: String,
 
-    #[entity(column = "email")]
-    email: String,
+    email: Option<String>,
 
-    #[entity(column = "age")]
     age: i32,
 
-    #[entity(column = "status")]
     status: String,
 
     #[entity(auto_generated)]
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
-// Schema setup
-async fn setup_schema(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(r#"
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-            username TEXT NOT NULL UNIQUE,
-            email TEXT NOT NULL UNIQUE,
-            age INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-    "#).execute(pool).await?;
-    Ok(())
-}
+// ── Helper: seed test data using the CRUD repo ────────────────────────────────
 
-// Insert test data
-async fn insert_test_data(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
+async fn seed(repo: &UserRepo) -> Result<(), Box<dyn std::error::Error>> {
     let now = chrono::Utc::now();
-
-    sqlx::query("INSERT INTO users (id, username, email, age, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("john_admin")
-        .bind("john.admin@example.com")
-        .bind(35i32)
-        .bind("active")
-        .bind((now - chrono::Duration::days(60)).to_rfc3339())
-        .execute(pool).await?;
-
-    sqlx::query("INSERT INTO users (id, username, email, age, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("jane_user")
-        .bind("jane@example.com")
-        .bind(28i32)
-        .bind("active")
-        .bind((now - chrono::Duration::days(30)).to_rfc3339())
-        .execute(pool).await?;
-
-    sqlx::query("INSERT INTO users (id, username, email, age, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("bob_ghost")
-        .bind("bob@old.com")
-        .bind(22i32)
-        .bind("inactive")
-        .bind((now - chrono::Duration::days(90)).to_rfc3339())
-        .execute(pool).await?;
-
+    let rows: &[(&str, Option<&str>, i32, &str)] = &[
+        ("john_admin", Some("john@example.com"), 35, "active"),
+        ("jane_user",  Some("jane@example.com"), 28, "active"),
+        ("bob_ghost",  None,                      22, "inactive"),
+        ("alice_dev",  Some("alice@dev.com"),     30, "active"),
+        ("eve_reader", Some("eve@books.com"),     17, "inactive"),
+    ];
+    for (username, email, age, status) in rows {
+        repo.save(&User {
+            id:         uuid::Uuid::new_v4(),
+            username:   username.to_string(),
+            email:      email.map(str::to_string),
+            age:        *age,
+            status:     status.to_string(),
+            created_at: now,
+        }).await?;
+    }
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // --- Database setup ---
+    // ── Connect + migrate ─────────────────────────────────────────────────────
     let pool = SqlitePool::connect("sqlite::memory:").await?;
-    setup_schema(&pool).await?;
-    insert_test_data(&pool).await?;
-    // ─── QueryRepository: read-only, no insert/update/delete ────────
-    // Because #[derive(Entity)] also generates RowExtractable for User,
-    // we can create a QueryRepository directly from the same pool:
-    let query_repo = QueryRepository::<Sqlite, User>::new(pool.clone());
+    rustdata_migrations::migrate!(&pool, "examples/migrations").await?;
+    println!("✓ Migrations applied");
 
-    // find_all returns every row in the table (no WHERE, no pagination)
-    let all: Vec<User> = query_repo.find_all("users").await?;
-    println!("[QueryRepository] all rows: {}", all.len());
+    // ── Seed via the generated CRUD repo ──────────────────────────────────────
+    let crud_repo = UserRepo::new(pool.clone());
+    seed(&crud_repo).await?;
 
-    // find_by_id reads one row by primary key (UUID)
-    let first = &all[0];
-    let fetched = query_repo.find_by_id("users", SqlValue::Str(first.id.to_string())).await?;
-    println!("[QueryRepository] first user: {:?}", fetched.as_ref().map(|u| &u.username));
+    // ── QueryRepository for read-only / ad-hoc queries ────────────────────────
+    //
+    // `QueryRepository` uses the same `User` struct (which implements
+    // `RowExtractable` via `#[derive(Entity)]`) but exposes only query methods.
+    let repo = QueryRepository::<rustdata_core::backends::Sqlite, User>::new(pool);
 
-    // find_all_by_sql executes arbitrary SELECTs and maps rows → User via RowExtractable
-    let adults: Vec<User> = query_repo.find_all_by_sql(
-        "SELECT * FROM users WHERE age > ?1",
-        &[SqlValue::I32(25)],
-    ).await?;
-    println!("[QueryRepository] adults: {}", adults.len());
+    // find_all_by_sql — execute any SELECT and map rows to User
+    let adults: Vec<User> = repo
+        .find_all_by_sql("SELECT * FROM users WHERE age > ?", &[SqlValue::I64(21)])
+        .await?;
+    println!("✓ Adults (age > 21): {}", adults.len());
 
-    // execute_sql handles non-SELECT statements; returns rows-affected
-    let rows_affected: u64 = query_repo.execute_sql(
-        "UPDATE users SET status = ?1 WHERE status = ?2",
-        &[SqlValue::Str("archived".into()), SqlValue::Str("inactive".into())],
-    ).await?;
-    println!("[QueryRepository] rows updated: {}", rows_affected);
+    // find_one_by_sql — returns Option<User>
+    let first = repo
+        .find_one_by_sql(
+            "SELECT * FROM users WHERE status = ? ORDER BY created_at DESC LIMIT 1",
+            &[SqlValue::Str("active".into())],
+        )
+        .await?;
+    println!("✓ Latest active user: {:?}", first.as_ref().map(|u| &u.username));
 
-    let repo = QueryRepository::<Sqlite, User>::new(pool);
+    // execute_sql — non-SELECT (UPDATE/DELETE), returns rows_affected
+    let archived = repo
+        .execute_sql(
+            "UPDATE users SET status = ? WHERE status = ?",
+            &[SqlValue::Str("archived".into()), SqlValue::Str("inactive".into())],
+        )
+        .await?;
+    println!("✓ Archived {} inactive user(s)", archived);
 
-    // ============================================================
-    // NON-CRUD QUERY PATTERNS (QueryRepository is read-only)
-    // ============================================================
+    // Verify the update
+    let inactive_after: Vec<User> = repo
+        .find_all_by_sql("SELECT * FROM users WHERE status = ?", &[SqlValue::Str("inactive".into())])
+        .await?;
+    assert!(inactive_after.is_empty(), "all inactive should now be archived");
+    println!("✓ No inactive users remain");
 
-    // find_one_by_sql / find_all_by_sql  — raw SQL → RowExtractable mapping
-    let adults: Vec<User> = repo.find_all_by_sql(
-        "SELECT * FROM users WHERE age > ?1",
-        &[SqlValue::I32(21)],
-    ).await?;
-    println!("Adults (age > 21): {}", adults.len());
-
-    // execute_sql  — non-SELECT statements (returns rows-affected)
-    let rows_affected: u64 = repo.execute_sql(
-        "UPDATE users SET status = ?1 WHERE age < ?2",
-        &[SqlValue::Str("senior".into()), SqlValue::I32(30)],
-    ).await?;
-    println!("Rows updated: {}", rows_affected);
-
-    // verify
-    let all_after_update: Vec<User> = repo.find_all("users").await?;
-    for u in all_after_update {
-        println!("  {} age={} status={}", u.username, u.age, u.status);
-    }
-
+    println!("\n✅  Done.");
     Ok(())
 }
