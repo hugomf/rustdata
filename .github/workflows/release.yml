@@ -180,7 +180,6 @@ jobs:
           TAG="${{ steps.version.outputs.next_short }}"
           git tag -a "$TAG" -m "Release $TAG"
           git push origin --follow-tags
-          git push rustdata --follow-tags
 
       - name: cargo publish — rustdata-macros
         env:
