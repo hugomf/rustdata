@@ -65,13 +65,10 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-features
 
-      - name: cargo publish --dry-run (all members)
+      - name: cargo publish --dry-run (leaf crate, no workspace deps)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish -p rustdata-macros     --dry-run
-          cargo publish -p rustdata-migrations --dry-run
-          cargo publish -p rustdata-core       --dry-run
+        run: cargo publish -p rustdata-macros --dry-run
 
   # ── Full release ────────────────────────────────────────────────────────────
 

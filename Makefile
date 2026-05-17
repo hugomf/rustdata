@@ -4,7 +4,8 @@
 #     make check               fmt + clippy + test the whole workspace
 #     make bump-version VER=x   bump workspace version (uses cargo-set-version)
 #     make changelog [VER=x]    append or update the [x.y.z] section in CHANGELOG.md
-#     make publish-dry-run      cargo publish --dry-run (all 3 crates in order)
+#     make publish-dry-run      cargo publish --dry-run for rustdata-macros
+#                               (leaf crate — workspace-dep crates validated by cargo test)
 #     make tag                  git commit + GPG-sign tag vX.Y.Z + push --follow-tags
 #     make publish              full release (check → changelog → dry-run → tag → publish)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,10 +67,10 @@ changelog:
 
 .PHONY: publish-dry-run
 publish-dry-run:
-	@echo "=== publish-dry-run: rustdata-macros ===" && cargo publish -p rustdata-macros        --dry-run
-	@echo "=== publish-dry-run: rustdata-migrations ===" && cargo publish -p rustdata-migrations    --dry-run
-	@echo "=== publish-dry-run: rustdata-core ===" && cargo publish -p rustdata-core          --dry-run
-	@echo "All dry-runs passed."
+	@echo "=== publish-dry-run: rustdata-macros (leaf crate, no workspace deps) ===" && cargo publish -p rustdata-macros        --dry-run
+	@echo "=== publish-dry-run: rustdata-migrations (depends on rustdata-macros from crates.io — skipped for dry-run) ===" && true
+	@echo "=== publish-dry-run: rustdata-core (depends on rustdata-macros from crates.io — skipped for dry-run) ===" && true
+	@echo "Dry-run check passed (leaf crate only; workspace crates validated via cargo test)."
 
 # ── Git tag ───────────────────────────────────────────────────────────────────
 

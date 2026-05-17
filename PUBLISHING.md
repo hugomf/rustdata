@@ -56,7 +56,7 @@ flowchart TD
         fmt["cargo fmt --check"]
         clippy["cargo clippy --all-features -D warnings"]
         test["cargo test --workspace --all-features"]
-        dry["cargo publish --dry-run\n(all 3 crates, dependency order)"]
+        dry["cargo publish --dry-run\n(leaf crate: rustdata-macros)"]
         fmt --> clippy --> test --> dry
     end
 

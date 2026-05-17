@@ -59,13 +59,10 @@ jobs:
       - name: cargo test (workspace)
         run: cargo test --workspace --all-features
 
-      - name: cargo publish --dry-run (all members, dependency order)
+      - name: cargo publish --dry-run (leaf crate, no workspace deps)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish -p rustdata-macros        --dry-run
-          cargo publish -p rustdata-migrations    --dry-run
-          cargo publish -p rustdata-core          --dry-run
+        run: cargo publish -p rustdata-macros --dry-run
 
   # ── Release: manual dispatch (single bump, uses env BUMP_TYPE) ───────────
 
